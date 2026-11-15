@@ -1,0 +1,9 @@
+# Analysis, calibration, replay and live inference (Python >= 3.9).
+# Use matching package versions when moving an existing joblib model between environments.
+numpy>=1.21,<3
+pandas>=1.5,<3
+scipy>=1.9,<2
+scikit-learn>=1.2,<2
+joblib>=1.2,<2
+pylsl>=1.16,<2
+

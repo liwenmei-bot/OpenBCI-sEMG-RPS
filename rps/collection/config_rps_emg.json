@@ -1,0 +1,52 @@
+{
+  "experiment_name": "OpenBCI_RPS_sEMG_3Class",
+  "network": {
+    "ip": "127.0.0.1",
+    "port": 12350
+  },
+  "markers": {
+    "rock": 11,
+    "scissors": 12,
+    "paper": 13,
+    "end": 20,
+    "reject": 90
+  },
+  "run_markers": {
+    "start_base": 100,
+    "end_base": 110,
+    "abort_base": 120
+  },
+  "timing": {
+    "baseline_min_s": 2.5,
+    "baseline_max_s": 3.5,
+    "cue_s": 1.0,
+    "action_s": 4.0,
+    "return_s": 0.5,
+    "training_start_after_marker_s": 0.5,
+    "training_end_after_marker_s": 3.5,
+    "run_boundary_display_s": 0.5
+  },
+  "protocol": {
+    "random_seed": 20260823,
+    "practice_per_class": 2,
+    "max_retries_per_trial": 3,
+    "pilot": {
+      "runs": 2,
+      "trials_per_run": 18
+    },
+    "formal": {
+      "runs": 4,
+      "trials_per_run": 18
+    }
+  },
+  "display": {
+    "full_screen": true,
+    "screen": 0,
+    "window_size": [
+      1280,
+      720
+    ],
+    "background_color": "#101820",
+    "font": "Microsoft YaHei"
+  }
+}

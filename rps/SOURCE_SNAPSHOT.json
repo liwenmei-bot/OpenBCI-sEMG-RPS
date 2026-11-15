@@ -1,0 +1,67 @@
+{
+  "snapshot_date": "2026-11-03",
+  "project": "OpenBCI four-channel sEMG RPS",
+  "source_files": [
+    {
+      "path": "01_preprocess_openbci_rps_4ch.py",
+      "sha256": "9e25489d00314dbdb7352f2d6239b4d30a78b56e939c2d627711ce074edacfad",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "02_train_svm_openbci_rps_4ch.py",
+      "sha256": "ae42f212f9e069439a8b3d8db8bfce389f4b11e74e33ac64adcaa4322c48ea46",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "03_calibrate_svm_openbci_rps_4ch.py",
+      "sha256": "ca470cb5241b89fc42a1775b68280855b28af25b9b1049f80d92e63ec6cc65bd",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "04_evaluate_svm_cross_session_4ch.py",
+      "sha256": "4e91e2f5fee588ed8c0e3a3b14e42c11d1ef70f1fc3f5fa97de206b813948753",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "05_replay_svm_openbci_rps_4ch.py",
+      "sha256": "26344331c6e5aa682e5844d0a717b688aef656222a4191ea726511346ea214f7",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "06_live_svm_openbci_rps_4ch.py",
+      "sha256": "12c54407be23b868c3ea047f419355f61e942f563337c18edfefd80192894744",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "07_live_svm_rps_label_4ch.py",
+      "sha256": "950db6f1c2fa1c44ee38e62be5e0e64c793c50315a9fc7305820505fae88f173",
+      "origin": "current_project_script",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "collection/openbci_rps_collection.py",
+      "sha256": "c6f73fa87e097a6a7a34bacb142d16d68ad040f5e66d5933532d0da45f6ee68c",
+      "origin": "previously_supplied_collection_source",
+      "algorithm_changed_for_repository": false
+    },
+    {
+      "path": "collection/config_rps_emg.original.json",
+      "sha256": "9a31606f362793e485a164abb5fbed81ab267e1250bbed7f9fdf1ee2675344b1",
+      "origin": "previously_supplied_collection_source",
+      "algorithm_changed_for_repository": false
+    }
+  ],
+  "config_adjustment": {
+    "file": "collection/config_rps_emg.json",
+    "key": "protocol.formal.runs",
+    "original": 5,
+    "repository_example": 4,
+    "reason": "Match the current 4 Run x 18 Trial daily calibration protocol; original config retained separately."
+  }
+}

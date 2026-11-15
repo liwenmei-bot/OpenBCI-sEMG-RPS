@@ -1,0 +1,4 @@
+# Optional collection environment only; PsychoPy version/Python support varies by release.
+# Standalone PsychoPy can also run collection/openbci_rps_collection.py.
+psychopy
+
