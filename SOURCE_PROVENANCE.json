@@ -1,0 +1,302 @@
+{
+  "project_version": "0.1.0",
+  "description": "Available project sources; raw participant records and fitted models are excluded.",
+  "sources": [
+    {
+      "path": "archive/binary/v1_0_0/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py.before",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "a5f10a9f99847aa9c0ffe1f349a2433c4cb656f97e2e4d192a57eb27a230b4fe",
+      "included_sha256": "a5f10a9f99847aa9c0ffe1f349a2433c4cb656f97e2e4d192a57eb27a230b4fe"
+    },
+    {
+      "path": "archive/binary/v1_0_0/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py.before",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "15cc721108516dd6db055125301cf21e9ea3ca090c134357e5308d1e0deebd5e",
+      "included_sha256": "15cc721108516dd6db055125301cf21e9ea3ca090c134357e5308d1e0deebd5e"
+    },
+    {
+      "path": "archive/binary/v1_1_0/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py.v110",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "443ab33724df0846c2a172093bdb83bfb6b8ff56c05a0288c364c839a71ad4e7",
+      "included_sha256": "443ab33724df0846c2a172093bdb83bfb6b8ff56c05a0288c364c839a71ad4e7"
+    },
+    {
+      "path": "archive/binary/v1_1_0/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py.v110",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "859b53e742dfd095d5126b8eaa3ed4f01c379fc9c766a9d49a0b3a38617e7a58",
+      "included_sha256": "859b53e742dfd095d5126b8eaa3ed4f01c379fc9c766a9d49a0b3a38617e7a58"
+    },
+    {
+      "path": "archive/binary/v1_2_0/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py.v120",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "50afc8e0de8e7a225ae996c64fa88ac78716f01e8049273d77cb2300cf66ae7b",
+      "included_sha256": "50afc8e0de8e7a225ae996c64fa88ac78716f01e8049273d77cb2300cf66ae7b"
+    },
+    {
+      "path": "archive/binary/v1_2_0/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py.v120",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "42ca2d4acb7c3408c2d879739ab4e91c7c03977c95a4b8e9ad3369223dade4dc",
+      "included_sha256": "42ca2d4acb7c3408c2d879739ab4e91c7c03977c95a4b8e9ad3369223dade4dc"
+    },
+    {
+      "path": "archive/binary/v1_3_0/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py.v130",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "9a53cecc5da3bc9cb88254263173ef05fd709ca65146243d320001a9ebbd5fc9",
+      "included_sha256": "9a53cecc5da3bc9cb88254263173ef05fd709ca65146243d320001a9ebbd5fc9"
+    },
+    {
+      "path": "archive/binary/v1_3_0/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py.v130",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "17ccdae6e98c3015720933c9f602db0ca93c7c8c8dfeb071493ed9c586d3f477",
+      "included_sha256": "17ccdae6e98c3015720933c9f602db0ca93c7c8c8dfeb071493ed9c586d3f477"
+    },
+    {
+      "path": "archive/binary/v1_3_1/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py.v131",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "617f931c13dc0b7c1ba0e4d2a3e8e94aa41262f7b4a9c8f2a651a18718faa127",
+      "included_sha256": "617f931c13dc0b7c1ba0e4d2a3e8e94aa41262f7b4a9c8f2a651a18718faa127"
+    },
+    {
+      "path": "archive/binary/v1_3_1/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py.v131",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "2ec0d357946d82bea07f7b497079074c755c99d13d08a86c8b038245d9e982b9",
+      "included_sha256": "2ec0d357946d82bea07f7b497079074c755c99d13d08a86c8b038245d9e982b9"
+    },
+    {
+      "path": "archive/binary/v1_3_2/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py.v132",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "c25ced6716c81def17439156269caadc3676a5c238a276096addb0abe6272ee9",
+      "included_sha256": "c25ced6716c81def17439156269caadc3676a5c238a276096addb0abe6272ee9"
+    },
+    {
+      "path": "archive/binary/v1_3_2/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py.v132",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "453ad98a6591ba6fdc936bb27b37d8729c689d621e8d10cc06e763d2972ccf65",
+      "included_sha256": "453ad98a6591ba6fdc936bb27b37d8729c689d621e8d10cc06e763d2972ccf65"
+    },
+    {
+      "path": "binary/00_collect_rp_binary_4ch.py",
+      "original_filename": "00_collect_rp_binary_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "787ead4034eb87c57888bdbeb8da0c0c359597146d2f5f73f4cc4492b6840973",
+      "included_sha256": "787ead4034eb87c57888bdbeb8da0c0c359597146d2f5f73f4cc4492b6840973"
+    },
+    {
+      "path": "binary/01_preprocess_rp_binary_4ch.py",
+      "original_filename": "01_preprocess_rp_binary_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "7018f96a2fc6d3b1e6bf1904c37395aee5393b12db8e286ea6be062d08bcdfea",
+      "included_sha256": "7018f96a2fc6d3b1e6bf1904c37395aee5393b12db8e286ea6be062d08bcdfea"
+    },
+    {
+      "path": "binary/02_train_base_rp_binary_4ch.py",
+      "original_filename": "02_train_base_rp_binary_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "61cf0f251dbbe904a51772d86a9be9c79af640f63be33c8afc6f9a5987f29d0a",
+      "included_sha256": "61cf0f251dbbe904a51772d86a9be9c79af640f63be33c8afc6f9a5987f29d0a"
+    },
+    {
+      "path": "binary/03_calibrate_rp_binary_4ch.py",
+      "original_filename": "03_calibrate_rp_binary_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "ca52124d4432887b50b44a5cda1e1d8c6d8247c00f940e6ff9b2cc342bed7179",
+      "included_sha256": "ca52124d4432887b50b44a5cda1e1d8c6d8247c00f940e6ff9b2cc342bed7179"
+    },
+    {
+      "path": "binary/07_live_rp_binary_extended_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29",
+      "included_sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29"
+    },
+    {
+      "path": "binary/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a",
+      "included_sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a"
+    },
+    {
+      "path": "binary/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py",
+      "kind": "adapted_integration",
+      "original_sha256": "249ebdb00ecbe11d7576da119bd47bf319d6f817a7fd4296b07546003cb3e599",
+      "included_sha256": "0ac09082f5089ae42dbe2f257f099283877a42324cfb98df316dc110d5e7de64",
+      "integration_note": "Route classic/extended engines to compatible parsers; add explicit classic overrides; retain training and replay helpers."
+    },
+    {
+      "path": "rps/01_preprocess_openbci_rps_4ch.py",
+      "original_filename": "01_preprocess_openbci_rps_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "9e25489d00314dbdb7352f2d6239b4d30a78b56e939c2d627711ce074edacfad",
+      "included_sha256": "9e25489d00314dbdb7352f2d6239b4d30a78b56e939c2d627711ce074edacfad"
+    },
+    {
+      "path": "rps/02_train_svm_openbci_rps_4ch.py",
+      "original_filename": "02_train_svm_openbci_rps_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "ae42f212f9e069439a8b3d8db8bfce389f4b11e74e33ac64adcaa4322c48ea46",
+      "included_sha256": "ae42f212f9e069439a8b3d8db8bfce389f4b11e74e33ac64adcaa4322c48ea46"
+    },
+    {
+      "path": "rps/03_calibrate_svm_openbci_rps_4ch.py",
+      "original_filename": "03_calibrate_svm_openbci_rps_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "ca470cb5241b89fc42a1775b68280855b28af25b9b1049f80d92e63ec6cc65bd",
+      "included_sha256": "ca470cb5241b89fc42a1775b68280855b28af25b9b1049f80d92e63ec6cc65bd"
+    },
+    {
+      "path": "rps/04_evaluate_svm_cross_session_4ch.py",
+      "original_filename": "04_evaluate_svm_cross_session_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "4e91e2f5fee588ed8c0e3a3b14e42c11d1ef70f1fc3f5fa97de206b813948753",
+      "included_sha256": "4e91e2f5fee588ed8c0e3a3b14e42c11d1ef70f1fc3f5fa97de206b813948753"
+    },
+    {
+      "path": "rps/05_replay_svm_openbci_rps_4ch.py",
+      "original_filename": "05_replay_svm_openbci_rps_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "26344331c6e5aa682e5844d0a717b688aef656222a4191ea726511346ea214f7",
+      "included_sha256": "26344331c6e5aa682e5844d0a717b688aef656222a4191ea726511346ea214f7"
+    },
+    {
+      "path": "rps/06_live_svm_openbci_rps_4ch.py",
+      "original_filename": "06_live_svm_openbci_rps_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "12c54407be23b868c3ea047f419355f61e942f563337c18edfefd80192894744",
+      "included_sha256": "12c54407be23b868c3ea047f419355f61e942f563337c18edfefd80192894744"
+    },
+    {
+      "path": "rps/07_live_svm_rps_label_4ch.py",
+      "original_filename": "07_live_svm_rps_label_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "950db6f1c2fa1c44ee38e62be5e0e64c793c50315a9fc7305820505fae88f173",
+      "included_sha256": "950db6f1c2fa1c44ee38e62be5e0e64c793c50315a9fc7305820505fae88f173"
+    },
+    {
+      "path": "rps/08_today_only_svm_rps_4ch.py",
+      "original_filename": "08_today_only_svm_rps_4ch.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "ed59d8fd95c59d01b3ef7f21d103c2623942fd168dc6f0399ac0e1b29cbd8eda",
+      "included_sha256": "ed59d8fd95c59d01b3ef7f21d103c2623942fd168dc6f0399ac0e1b29cbd8eda"
+    },
+    {
+      "path": "rps/README.md",
+      "original_filename": "README.md",
+      "kind": "adapted_integration",
+      "original_sha256": "4ce562ef3ab6f6103d7683a7944237d920412e4cb066e9e425742763e7b4c876",
+      "included_sha256": "0398e48e62df1d765d4d216d333a588baa9e584bdaede45eadd56c086e4a46b1",
+      "integration_note": "Add integrated-project context and document the recovered 08 entry."
+    },
+    {
+      "path": "rps/SOURCE_SNAPSHOT.json",
+      "original_filename": "SOURCE_SNAPSHOT.json",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "8b174182d164902e7e70e323008ab5f49f00a8e713515de6e9d5405266339515",
+      "included_sha256": "8b174182d164902e7e70e323008ab5f49f00a8e713515de6e9d5405266339515"
+    },
+    {
+      "path": "rps/collection/config_rps_emg.json",
+      "original_filename": "config_rps_emg.json",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "b7ea8b7ca4324cd0a8bc4ba450fe6997d133589f7daa7d77dc88cd3782f36190",
+      "included_sha256": "b7ea8b7ca4324cd0a8bc4ba450fe6997d133589f7daa7d77dc88cd3782f36190"
+    },
+    {
+      "path": "rps/collection/config_rps_emg.original.json",
+      "original_filename": "config_rps_emg.original.json",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "9a31606f362793e485a164abb5fbed81ab267e1250bbed7f9fdf1ee2675344b1",
+      "included_sha256": "9a31606f362793e485a164abb5fbed81ab267e1250bbed7f9fdf1ee2675344b1"
+    },
+    {
+      "path": "rps/collection/openbci_rps_collection.py",
+      "original_filename": "openbci_rps_collection.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "c6f73fa87e097a6a7a34bacb142d16d68ad040f5e66d5933532d0da45f6ee68c",
+      "included_sha256": "c6f73fa87e097a6a7a34bacb142d16d68ad040f5e66d5933532d0da45f6ee68c"
+    },
+    {
+      "path": "rps/docs/GITHUB_UPLOAD.md",
+      "original_filename": "GITHUB_UPLOAD.md",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "8ff2db2d63edefa73a45a7eabd4dabc2f88217d573d73347628f009f79e30029",
+      "included_sha256": "8ff2db2d63edefa73a45a7eabd4dabc2f88217d573d73347628f009f79e30029"
+    },
+    {
+      "path": "rps/requirements-collection.txt",
+      "original_filename": "requirements-collection.txt",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "5cdd473a30263b8aaa85a9b260727ba45c5f982a91fc8c3f62debbe88f6833dd",
+      "included_sha256": "5cdd473a30263b8aaa85a9b260727ba45c5f982a91fc8c3f62debbe88f6833dd"
+    },
+    {
+      "path": "rps/requirements.txt",
+      "original_filename": "requirements.txt",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "7d41859332dc423170082dfe86412f144d322c3fbb079a4f03bcb426c60df811",
+      "included_sha256": "7d41859332dc423170082dfe86412f144d322c3fbb079a4f03bcb426c60df811"
+    },
+    {
+      "path": "rps/run_daily_calibration.py",
+      "original_filename": "run_daily_calibration.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "f82232e2a9bc5df7705562d2ae08abbe7ffa7279b9074b101010efee3fa939e4",
+      "included_sha256": "f82232e2a9bc5df7705562d2ae08abbe7ffa7279b9074b101010efee3fa939e4"
+    },
+    {
+      "path": "rps/tests/__init__.py",
+      "original_filename": "__init__.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "included_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "rps/tests/test_rest_gate.py",
+      "original_filename": "test_rest_gate.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "f4c011430b45083758918d11dead5099616ff4da4959b5a64df119a22afe8574",
+      "included_sha256": "f4c011430b45083758918d11dead5099616ff4da4959b5a64df119a22afe8574"
+    },
+    {
+      "path": "rps/tools/check_repository.py",
+      "original_filename": "check_repository.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "d7d4134ecbd899f072a5234c48c34df2d72786c7391aa9643ffd62a7955f94d7",
+      "included_sha256": "d7d4134ecbd899f072a5234c48c34df2d72786c7391aa9643ffd62a7955f94d7"
+    },
+    {
+      "path": "tools/compare_rp_live_versions.py",
+      "original_filename": "compare_rp_live_versions.py",
+      "kind": "adapted_integration",
+      "original_sha256": "37bd430e0656599cf90781d133f1451e480edfacde983bc02903593ca0fd659d",
+      "included_sha256": "321cea30b875254ea3c44d2a5a2ba30cf9f93d0f0858b9b84bdfab4fac9a2231",
+      "integration_note": "Use project-relative code/output paths; require --run explicitly instead of a personal machine default."
+    },
+    {
+      "path": "tools/diagnose_rp_signal.py",
+      "original_filename": "diagnose_rp_signal.py",
+      "kind": "preserved_source_snapshot",
+      "original_sha256": "2af48a46d26f0dba0ae45d648eaebb7f7c9c4235fd258c0a568f2b8222091039",
+      "included_sha256": "2af48a46d26f0dba0ae45d648eaebb7f7c9c4235fd258c0a568f2b8222091039"
+    }
+  ],
+  "snapshot_date": "2026-11-15",
+  "notes": [
+    "This inventory records recovered project files, not a claim to possess every file on the original Windows computer.",
+    "New integration code, documentation, tests and configuration are covered by SOURCE_MANIFEST.json.",
+    "No participant recordings, fitted model files, credentials or local experiment outputs are distributed."
+  ]
+}

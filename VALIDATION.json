@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-15",
+  "scope": "source integration and synthetic software validation",
+  "environment": {
+    "platform": "Linux",
+    "python": "3.12.14",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "scipy": "1.17.0",
+    "scikit-learn": "1.8.0",
+    "joblib": "1.5.3"
+  },
+  "checks": [
+    {"command": "python run.py check --help-checks", "passed": true, "python_sources": 38, "cli_and_configuration_checks": 22},
+    {"command": "python -m unittest discover -s tests -v", "passed": true, "tests": 18},
+    {"command": "python -m unittest discover -s rps/tests -v", "passed": true, "tests": 7},
+    {"command": "python rps/tools/check_repository.py --skip-cli", "passed": true}
+  ],
+  "real_board_validated_in_this_integration": false,
+  "physical_muscle_onset_latency_measured": false,
+  "subject_accuracy_recomputed_in_this_integration": false,
+  "windows_native_ui_validated_in_this_integration": false,
+  "remote_github_ci_run": false
+}

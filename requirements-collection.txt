@@ -1,0 +1,3 @@
+# Optional; only collection screens require PsychoPy.
+# Keep an existing working collection environment when available.
+psychopy
