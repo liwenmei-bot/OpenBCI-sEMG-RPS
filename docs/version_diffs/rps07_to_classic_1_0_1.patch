@@ -1,0 +1,581 @@
+--- rps/07_live_svm_rps_label_4ch.py
++++ archive/binary/classic_v1_0_1/07_live_rp_binary_label_4ch.py
+@@ -1,58 +1,17 @@
+ #!/usr/bin/env python3
+ # -*- coding: utf-8 -*-
+-"""OpenBCI Wi-Fi四通道SVM实时识别＋识别后按钮标注（独立脚本，Python>=3.9）。
+-
+-数据路径：板卡Wi-Fi -> OpenBCI GUI -> Networking/LSL/TimeSeriesRaw -> 本程序。
+-GUI发送未滤波微伏值；本程序沿用模型SOS单向有状态滤波，200ms窗口/100ms步长、20维特征、固定SVM。
+-内嵌05 v1.1.0的窗口和判决代码，不导入01/03/05文件。输入流的数值精度和批量时间戳取决于GUI版本；
+-数值算法的一致性不等于已验证硬件端到端效果。
+-
+-安装：python -m pip install numpy pandas scipy scikit-learn joblib pylsl
+-列出流：python 07_live_svm_rps_label_4ch.py --list-streams
+-准备门控：python 07_live_svm_rps_label_4ch.py --model PATH/daily_model.joblib --prepare-only
+-实时显示：python 07_live_svm_rps_label_4ch.py --model PATH/daily_model.joblib --detector PATH/replay_detector_config.json --stream-name rps_raw
+-
+-操作：自由做动作 -> 看识别结果 -> 点击实际做的“石头/剪刀/布”保存该事件的标签。
+-待标注事件按编号排队；新事件不覆盖旧事件。每次先标注，再做下一次，避免弄混。
+-若完成一次动作但没有新输出，可单独点“记录一次漏检”再选择实际动作。
+-默认显示映射11=石头、12=剪刀、13=布；其他映射请指定--class-names。
+-标签只进PosthocLabels评分器，从不传入SVM/门控，不改变预测，不重置检测器。
+-准确率仅针对已标注记录：正确/(正确+错误+手动记录漏检)。未标注事件另列。
+-这是用户事后确认的真值；没有动作起止标记，不自动计算漏检率、静息误触发率或动作延迟。
+-按钮点击立即保存action_labels.csv、label_accuracy_summary.json、label_confusion_matrix.csv。
+-停止接收后窗口保留，可继续标注待确认事件；点击关闭退出。
+-v1.1.1：CSV/JSON快照暂时被占用时继续识别，保留最新内容并重试；
+-停止时仍不能替换的快照另存*_recovery_时间.csv/json，并明确报告保存状态。
+-原始连续日志的其他I/O错误仍明确报错；不会把磁盘写满等错误冒充保存成功。
+-v1.2.0：活动条明确显示OFF/ON门限与滞回区，条长不是概率或识别完成度。
+-在日志初始化完成后清理启动期Python LSL接收缓存；退出时关闭订阅并释放inlet引用。
+-“重新同步LSL”会重新发现同源流、创建全新接收订阅、重置滤波/判决并重新等待真实放松；
+-它不重连板卡，也无法清空GUI或板卡上游队列。丢弃缓存的点数写入配置与传输日志。
+-transport_health.csv记录LSL推送后的数据年龄、5秒接收速率、接收队列点数和stream uid；
+-这些量用于定位时序问题，不是板卡端到端延迟或原始丢包计数。
+-v1.3.0：--activity-mode robust启用启动静息测量（默认8秒）及逐通道median/MAD门控。
+-至少--min-active-channels路持续增强才启动；单路极大值不能抬高其他通道的分数。
+-静息测量期间不输出手势，测量后参考冻结；仅点“重新测静息”才重新估计，不自动追随动作。
+-rest_calibration.json保留测量参考、每路微伏门限、通过/失败和重测历史；逐窗日志保留新旧分数。
+-稳健门控是待验证的新方案，6/3倍稳健尺度与默认2路是起始设置，未用你的独立测试数据优化。
+---activity-mode legacy保留原门控，也是默认模式；SVM、特征、滤波、按钮真值统计均保持原约定。
+-
+-prepare-only只读取源Run1+2选择门控，不拟合SVM/Scaler，不连接设备，不需要第二份测试记录。
+-也可直接沿用05 v1.1输出的匹配配置。实时模式不读取动作Marker，不更新分类模型；
+-robust模式在明确提示的静息测量阶段单独估计实时门控参考，不修改输入的门控文件。
+-默认读取LSL的第1~4个通道；保存所有收到的四通道原始值、逐窗QC/特征/状态和事件。
+-数据中断、非有限值、时间戳异常时重置并预热；重新观察到持续放松才允许输出。
+-数据积压/处理延迟超限时保留日志但禁止输出，防止把过时手势显示成新动作。
+-GUI TimeSeriesRaw通常不含板卡Sample Index，无法保证检测板卡端全部丢包；若流另含该计数器，
+-可用--counter-channel显式指定其通道。时间戳/接收中断检查不冒充完整硬件丢包审计。
+-显示名称按本项目默认映射；--class-names的顺序对应Marker11/12/13。
+-程序仅用于屏幕显示，不向机械臂或其他外设发送指令。没有外部真值标签时不自动报告准确率。
+-关闭窗口或Ctrl+C停止并保存；--no-ui可仅用终端显示。
+-
+-GUI设置依据OpenBCI官方Networking文档及W_Networking.pde；LSL接口依据pylsl官方源码。
+-https://docs.openbci.com/Software/OpenBCISoftware/GUIWidgets/#networking
+-https://github.com/OpenBCI/OpenBCI_GUI/blob/master/OpenBCI_GUI/W_Networking.pde
+-https://github.com/labstreaminglayer/pylsl
++"""三分类原06/07自动检测流程的石头/布适配版：先放松，再动作，自动输出，最后人工标注。
++
++石头 Marker11 -> class0；布 Marker13 -> class1。静息由活动门控处理。
++Python >= 3.9；依赖 numpy pandas scipy scikit-learn joblib，实时另需 pylsl。
++独立对照版本；载入现有石头/布二分类daily_model，不载入旧三分类模型。
++默认legacy沿用该模型配套的离线活动参考、启动/释放门限与投票参数。
++原06与三分类07的滤波、分窗、活动分数和状态机相同；此版本保留这些流程。
++界面来自三分类07，仅保留两类事后标注；不要求提前选择实际动作。
++示例：python 07_live_rp_binary_classic_4ch.py --run PIPELINE_DIRECTORY
++运行前核对：增加 --check-only；只检查模型和门控，不连接设备。
++截图试验：--activity-mode legacy --gate-profile trial；临时ON=7.2、OFF=7.0。
++默认source仍使用门控文件原值。trial来自少量截图，不是经过独立验证的参数。
+ """
+ from __future__ import annotations
+ 
+@@ -102,15 +61,15 @@
+ 
+ VERSION = "1.1.0"
+ 
+-SCHEMA = "openbci_rps_4ch_svm_continuous_replay_v1"
+-
+-DAILY_SCHEMA = "openbci_rps_4ch_svm_daily_v1"
++SCHEMA = "openbci_rp_binary_4ch_svm_continuous_replay_v1"
++
++DAILY_SCHEMA = "openbci_rp_binary_4ch_svm_daily_v1"
+ 
+ CHANNELS = ["EXG Channel %d" % i for i in range(4)]
+ 
+-INPUT_SCHEMA = "openbci_rps_4ch_preprocess_v1"
+-
+-BASE_SCHEMA = "openbci_rps_4ch_svm_v1"
++INPUT_SCHEMA = "openbci_rp_binary_4ch_preprocess_v1"
++
++BASE_SCHEMA = "openbci_rp_binary_4ch_svm_v1"
+ 
+ FEATURE_NAMES = ["ch%d_%s" % (ch, f) for ch in range(1, 5) for f in ("MAV", "RMS", "WL", "ZC", "SSC")]
+ 
+@@ -178,7 +137,7 @@
+         X = np.asarray(z[key], dtype=np.float64)
+         require(X.ndim == 2 and X.shape[1] == 20 and len(X) > 0, "特征必须为(窗口数,20)。")
+         require("feature_names" in z and z["feature_names"].tolist() == FEATURE_NAMES, "NPZ特征顺序不匹配。")
+-        require("class_names" in z and z["class_names"].shape == (3,), "缺少三类名称。")
++        require("class_names" in z and z["class_names"].shape == (2,), "缺少两类名称。")
+         names = z["class_names"].tolist()
+         values = {}
+         for key in META_KEYS:
+@@ -188,8 +147,8 @@
+     require(config.get("schema") == INPUT_SCHEMA and config.get("n_channels") == 4, "配置格式/通道数错误。")
+     require(config.get("channel_columns") == ["EXG Channel %d" % i for i in range(4)], "必须只使用前四通道。")
+     require(config.get("feature_names") == FEATURE_NAMES and config.get("filter_mode") == "causal_sos", "特征或因果滤波配置错误。")
+-    require(mapping.get("marker_to_class_id") == {"11": 0, "12": 1, "13": 2}, "Marker到类别的映射不匹配。")
+-    require([mapping.get("class_id_to_name", {}).get(str(i)) for i in range(3)] == names, "类别名称文件不一致。")
++    require(mapping.get("marker_to_class_id") == {"11": 0, "13": 1}, "Marker到类别的映射不匹配。")
++    require([mapping.get("class_id_to_name", {}).get(str(i)) for i in range(2)] == names, "类别名称文件不一致。")
+     meta = pd.DataFrame(values)
+     for key in ("y", "marker_code", "run_id", "start_row", "stop_row"):
+         v = pd.to_numeric(meta[key], errors="raise").to_numpy(dtype=float)
+@@ -197,8 +156,8 @@
+         meta[key] = v.astype(np.int64)
+     for key in set(META_KEYS) - {"y", "marker_code", "run_id", "start_row", "stop_row", "usable_mask"}:
+         meta[key] = meta[key].astype(str)
+-    require(set(meta.y.unique()) == {0, 1, 2}, "窗口未覆盖三类，或包含未知类别。")
+-    require(np.array_equal(meta.marker_code.to_numpy(), meta.y.to_numpy() + 11), "Marker与类别编号不一致。")
++    require(set(meta.y.unique()) == {0, 1}, "窗口未覆盖两类，或包含未知类别。")
++    require(np.array_equal(meta.marker_code.to_numpy(), np.take([11, 13], meta.y.to_numpy())), "Marker与类别编号不一致。")
+     require(set(meta.usable_mask.unique()).issubset({True, False, 0, 1}), "usable_mask必须为布尔掩码。")
+     meta["usable_mask"] = meta.usable_mask.astype(bool)
+     require(set(meta.qc_status).issubset({"PASS", "WARNING", "REVIEW"}), "QC状态错误。")
+@@ -218,8 +177,8 @@
+     for key in ("marker_code", "run_id", "subject_id", "session_id", "collection_date"):
+         require(np.array_equal(meta[key].astype(str).to_numpy(), matched[key].astype(str).to_numpy()), "Trial/窗口不一致：%s" % key)
+     require(np.array_equal(meta.y.to_numpy(), matched.class_id.to_numpy(dtype=int)), "Trial类别与窗口不一致。")
+-    require(set(trials.class_id.astype(int)).issubset({0, 1, 2}), "Trial存在未知类别。")
+-    require(np.array_equal(trials.marker_code.to_numpy(dtype=int), trials.class_id.to_numpy(dtype=int) + 11), "Trial Marker与类别不一致。")
++    require(set(trials.class_id.astype(int)).issubset({0, 1}), "Trial存在未知类别。")
++    require(np.array_equal(trials.marker_code.to_numpy(dtype=int), np.take([11, 13], trials.class_id.to_numpy(dtype=int))), "Trial Marker与类别不一致。")
+     finite = np.isfinite(X).all(axis=1)
+     meta["finite_features"] = finite
+     meta["model_eligible"] = finite & meta.usable_mask.to_numpy() & meta.qc_status.ne("REVIEW").to_numpy()
+@@ -240,16 +199,20 @@
+         require(equal, "历史/当天预处理不一致：%s；请沿用基础模型的预处理参数。" % key)
+ 
+ def predict(pipeline, X):
+-    scores = np.asarray(pipeline.decision_function(X), dtype=float)
+-    require(scores.shape == (len(X), 3) and np.isfinite(scores).all(), "SVM决策输出异常。")
+-    return pipeline.classes_[scores.argmax(axis=1)].astype(np.int64), scores
++    """Binary SVC: positive signed margin belongs to class 1 (paper)."""
++    margin = np.asarray(pipeline.decision_function(X), dtype=float)
++    require(margin.shape == (len(X),) and np.isfinite(margin).all(), "二分类SVM决策输出异常。")
++    require(np.array_equal(pipeline.classes_, [0, 1]), "需要重新训练的石头/布二分类模型，不能直接载入三分类模型。")
++    scores = np.column_stack([-margin, margin])
++    return pipeline.classes_[(margin >= 0).astype(int)].astype(np.int64), scores
++
+ 
+ def check_pipeline(bundle):
+     pipeline = bundle.get("pipeline")
+     require(isinstance(pipeline, Pipeline) and isinstance(pipeline.named_steps.get("scaler"), StandardScaler)
+             and isinstance(pipeline.named_steps.get("svm"), SVC), "模型必须是StandardScaler+SVC。")
+-    require(bundle.get("feature_names") == FEATURE_NAMES and bundle.get("class_ids") == [0, 1, 2], "模型特征或类别不匹配。")
+-    require(np.array_equal(pipeline.classes_, [0, 1, 2]) and pipeline["svm"].break_ties
++    require(bundle.get("feature_names") == FEATURE_NAMES and bundle.get("class_ids") == [0, 1], "模型特征或类别不匹配。")
++    require(np.array_equal(pipeline.classes_, [0, 1]) and pipeline["svm"].break_ties
+             and pipeline["svm"].decision_function_shape == "ovr", "模型决策规则不匹配。")
+ 
+ def load_daily(path):
+@@ -281,8 +244,8 @@
+     require(set(tr.run_id.astype(int)) == {1, 2, 3, 4}, "需要完整4Run，不自动拼接或随机拆分窗口。")
+     for run in (1, 2, 3, 4):
+         group = tr[tr.run_id.eq(run)]
+-        require(len(group) == 18 and group.class_id.astype(int).value_counts().to_dict() == {0: 6, 1: 6, 2: 6},
+-                "Run%d需要18Trial、三类各6，请核查采集完整性。" % run)
++        require(len(group) == 12 and group.class_id.astype(int).value_counts().to_dict() == {0: 6, 1: 6},
++                "Run%d需要12Trial、两类各6，请核查采集完整性。" % run)
+ 
+ class CausalEMGFilter:
+     """实时可复用的四路有状态单向滤波器。新 Session/缺口后显式 reset。"""
+@@ -515,7 +478,7 @@
+ 
+ def classify_frames(frames, features, pipeline, output=None):
+     predicted = np.full(len(frames), -1, dtype=np.int64)
+-    scores = np.full((len(frames), 3), np.nan)
++    scores = np.full((len(frames), 2), np.nan)
+     indices = np.flatnonzero(frames.usable.to_numpy() & np.isfinite(features).all(axis=1))
+     for lo in range(0, len(indices), 256):
+         part = indices[lo:lo + 256]
+@@ -524,7 +487,7 @@
+             log("固定SVM推理：%d/%d 窗。" % (min(lo + len(part), len(indices)), len(indices)), output)
+     frames = frames.copy()
+     frames["predicted_class_id"] = predicted
+-    for k in range(3): frames["decision_%d" % k] = scores[:, k]
++    for k in range(2): frames["decision_%d" % k] = scores[:, k]
+     return frames
+ 
+ def frames_in_intervals(frames, intervals):
+@@ -634,7 +597,7 @@
+         if len(self.history) < self.params["vote_windows"]:
+             return "collecting_votes", None
+         labels = np.asarray([x[0] for x in self.history])
+-        votes = np.bincount(labels, minlength=3)
++        votes = np.bincount(labels, minlength=2)
+         if votes.max() < self.params["minimum_votes"]:
+             return "unstable", None
+         means = np.mean([x[1] for x in self.history], axis=0)
+@@ -651,7 +614,7 @@
+     detector = GestureDetector(params)
+     trace = []
+     for i, frame in enumerate(frames.itertuples(index=False)):
+-        decision = np.array([frame.decision_0, frame.decision_1, frame.decision_2])
++        decision = np.array([frame.decision_0, frame.decision_1])
+         state, event = detector.step(int(frame.decision_row), int(frame.segment_id), bool(frame.usable),
+                                     scores[i], int(frame.predicted_class_id), decision)
+         if keep_trace:
+@@ -690,9 +653,9 @@
+     result = pd.DataFrame(records)
+     counts = result.class_id.astype(int).value_counts()
+     correct = result[result.first_trigger_correct].class_id.astype(int).value_counts()
+-    recalls = [int(correct.get(k, 0)) / int(counts[k]) if int(counts.get(k, 0)) else None for k in range(3)]
+-    cm = np.zeros((3, 4), dtype=int)
+-    for r in result.itertuples(index=False): cm[int(r.class_id), int(r.first_predicted_class_id) if r.first_predicted_class_id >= 0 else 3] += 1
++    recalls = [int(correct.get(k, 0)) / int(counts[k]) if int(counts.get(k, 0)) else None for k in range(2)]
++    cm = np.zeros((2, 3), dtype=int)
++    for r in result.itertuples(index=False): cm[int(r.class_id), int(r.first_predicted_class_id) if r.first_predicted_class_id >= 0 else 2] += 1
+     latencies = result.loc[result.first_trigger_correct, "latency_from_marker_s"].to_numpy(dtype=float)
+     score = {"n_trials_retained": len(result), "n_marker_intervals_scorable": int(result.marker_interval_scorable.sum()),
+         "correct_first_triggers": int(result.first_trigger_correct.sum()),
+@@ -703,10 +666,20 @@
+         "duplicate_trigger_count": int(result.duplicate_triggers.sum()), "class_recall": recalls,
+         "preceding_output_held_into_trial_count": int(result.preceding_output_held_into_marker.sum()),
+         "strict_misses_with_preceding_held_output": int((result.missed & result.preceding_output_held_into_marker).sum()),
+-        "confusion_class0_class1_class2_no_trigger": cm.tolist(),
++        "confusion_stone_paper_no_trigger": cm.tolist(),
+         "median_correct_trigger_latency_from_marker_s": float(np.median(latencies)) if len(latencies) else None,
+         "p90_correct_trigger_latency_from_marker_s": float(np.quantile(latencies, .9)) if len(latencies) else None}
+     return result, score
++
++def excluded_intervals(data):
++    session = str(data["trials"].session_id.iloc[0])
++    path = data["root"] / "sessions" / session / "excluded_actions.csv"
++    if not path.is_file():
++        return []
++    rows = pd.read_csv(path, encoding="utf-8-sig", keep_default_na=False)
++    return [(int(r.start_row), int(r.available_stop_row)) for r in rows.itertuples(index=False)
++            if int(r.available_stop_row) > int(r.start_row)]
++
+ 
+ def choose_detector(source, frames, features, fs, n_rows, output, settle_candidates_ms=(0, 200, 400, 600, 800)):
+     trials = source["trials"]
+@@ -745,7 +718,8 @@
+             validation_events = events_in_intervals(events, validation_bound)
+             val_trials, metrics_val = score_trials(validation_events, run2, fs, n_rows)
+             baseline_triggers = len(events_in_intervals(validation_events, baseline2))
+-            outside = len([e for e in validation_events if not any(int(t.start_row) <= e["decision_row"] < int(t.end_row) for t in run2.itertuples(index=False))])
++            unsupported = excluded_intervals(source)
++            outside = len([e for e in validation_events if not any(a <= e["decision_row"] < b for a, b in unsupported) and not any(int(t.start_row) <= e["decision_row"] < int(t.end_row) for t in run2.itertuples(index=False))])
+             row = {"candidate_id": len(candidates) + 1, "on_threshold": on, "off_threshold": off,
+                    "vote_windows": width, "minimum_votes": minimum,
+                    "settle_ms": wait,
+@@ -776,8 +750,8 @@
+ import queue
+ import threading
+ 
+-LIVE_VERSION = "1.3.0-rest-gate"
+-LIVE_SCHEMA = "openbci_rps_4ch_svm_live_v1"
++LIVE_VERSION = "1.0.1-rp-classic-tune"
++LIVE_SCHEMA = "openbci_rp_binary_4ch_svm_live_v1"
+ STATE_NAMES = {
+     "waiting_for_release": "请先放松手臂", "released": "已放松，等待动作",
+     "quiet_or_candidate": "等待动作稳定", "collecting_votes": "正在稳定判决",
+@@ -990,6 +964,15 @@
+ def runtime_detector_params(params, args):
+     result = dict(params)
+     options = live_gate_options(args)
++    profile = getattr(args, "gate_profile", "source")
++    explicit = {key: getattr(args, attr, None) for key, attr in [
++        ("on_threshold", "gate_on"), ("off_threshold", "gate_off"),
++        ("settle_seconds", "gate_settle_seconds"), ("vote_windows", "gate_vote_windows"),
++        ("minimum_votes", "gate_min_votes"), ("release_windows", "gate_release_windows")]}
++    require(profile in {"source", "trial"}, "未知门控参数方案。")
++    legacy_thresholds = profile == "trial" or any(explicit[key] is not None for key in ["on_threshold", "off_threshold"])
++    require(not legacy_thresholds or options["mode"] == "legacy",
++        "trial及--gate-on/--gate-off采用legacy分数，不能与robust评分混用。")
+     if options["mode"] == "robust":
+         result.update({"on_threshold": options["on_z"], "off_threshold": options["off_z"],
+             "activity_score": "kth_largest_channel_robust_rms_z",
+@@ -997,7 +980,33 @@
+             "runtime_activity_reference": "live_user_instructed_rest",
+             "source_gate_activity_thresholds_used": False,
+             "source_noise_reference_usage": "legacy_comparison_score_only"})
++    overrides = ({"on_threshold": 7.2, "off_threshold": 7.0, "settle_seconds": .2,
++        "vote_windows": 5, "minimum_votes": 4, "release_windows": 5} if profile == "trial" else {})
++    overrides.update({key: value for key, value in explicit.items() if value is not None})
++    if overrides:
++        original = {key: params.get(key) for key in ["on_threshold", "off_threshold", "settle_seconds",
++            "vote_windows", "minimum_votes", "release_windows"]}
++        result.update(overrides)
++        if "settle_seconds" in overrides:
++            fs = float(params.get("preprocess_config", {}).get("fs", 0))
++            require(np.isfinite(fs) and fs > 0, "修改等待时间需要门控配置中有效的采样率。")
++            result["settle_samples"] = int(round(float(result["settle_seconds"]) * fs))
++        result.update({"runtime_gate_profile": profile,
++            "runtime_gate_overrides": dict(overrides), "offline_detector_settings_original": original,
++            "runtime_gate_settings_independently_validated": False,
++            "runtime_gate_uses_preselected_class": False})
++        if "on_threshold" in overrides or "off_threshold" in overrides:
++            result["source_gate_activity_thresholds_used"] = False
++    on, off = float(result["on_threshold"]), float(result["off_threshold"])
++    require(np.isfinite([on, off]).all() and on > off >= 0, "必须满足：启动门限 > 放松门限 >= 0。")
++    require(np.isfinite(result["settle_seconds"]) and result["settle_seconds"] >= 0, "稳定等待时间必须为有限非负数。")
++    for key in ["on_windows", "vote_windows", "minimum_votes", "release_windows"]:
++        value = result[key]
++        require(isinstance(value, (int, np.integer)) and value >= 1, "门控窗口参数必须为正整数：" + key)
++    require(result["vote_windows"]/2 < result["minimum_votes"] <= result["vote_windows"],
++        "投票必须满足：窗口数的一半 < 最少票数 <= 窗口数。")
+     return result
++
+ 
+ 
+ class RestActivityGate:
+@@ -1089,7 +1098,7 @@
+             "off_rms_uv": None if self.profile is None else list(self.profile["off_rms_uv"])}
+ 
+     def report(self):
+-        return {"schema": "openbci_rps_live_rest_gate_v1", "status": self.snapshot(), "history": self.history,
++        return {"schema": "openbci_rp_binary_live_rest_gate_v1", "status": self.snapshot(), "history": self.history,
+             "score_definition": "kth_largest(max(0,(RMS-median)/max(1.4826*MAD,0.15*median,0.01uV)))",
+             "reference_update_policy": "startup_or_explicit_recalibrate_rest_only_then_frozen",
+             "minimum_active_channels": self.minimum_channels, "on_z": self.on_z, "off_z": self.off_z,
+@@ -1142,7 +1151,7 @@
+             frames, features = self.stream.push(values[lo:hi], flags[lo:hi])
+             if not frames: continue
+             features = np.asarray(features)
+-            scores, predicted = np.full((len(frames), 3), np.nan), np.full(len(frames), -1, dtype=int)
++            scores, predicted = np.full((len(frames), 2), np.nan), np.full(len(frames), -1, dtype=int)
+             eligible = np.array([f["usable"] for f in frames]) & np.isfinite(features).all(axis=1)
+             if eligible.any():
+                 predicted[eligible], scores[eligible] = predict(self.bundle["pipeline"], features[eligible])
+@@ -1165,7 +1174,7 @@
+                         frame["usable"] and timely, np.nan if activity is None else activity, int(predicted[i]), scores[i])
+                 if not timely: state = "stale"
+                 if event is not None:
+-                    event.update({"class_name": self.names[event["class_id"]], "marker_code_for_display": event["class_id"] + 11,
++                    event.update({"class_name": self.names[event["class_id"]], "marker_code_for_display": [11, 13][event["class_id"]],
+                         "decision_lsl_time_s": stamp, "emitted_local_clock_s": now,
+                         "data_age_at_emission_s": now - stamp, "wall_time": datetime.now().isoformat(timespec="milliseconds")})
+                     if self.activity_gate is not None:
+@@ -1177,7 +1186,7 @@
+                     "activity_score": activity, "detector_state": state,
+                     "output_suppressed_for_data_age": not timely,
+                     "trigger_event_id": event["event_id"] if event else -1})
+-                record.update({"decision_%d" % k: scores[i, k] for k in range(3)})
++                record.update({"decision_%d" % k: scores[i, k] for k in range(2)})
+                 record.update(dict(zip(FEATURE_NAMES, features[i])))
+                 if self.activity_gate is not None:
+                     record.update({"activity_mode": "robust", "legacy_activity_score": float(activities[i]),
+@@ -1278,7 +1287,7 @@
+         "event_emitted_local_clock_s", "event_wall_time", "annotation_local_clock_s", "annotation_wall_time"]
+ 
+     def __init__(self, names, clock=None):
+-        require(len(names) == 3 and len(set(names)) == 3, "三类显示名称必须互不相同。")
++        require(len(names) == 2 and len(set(names)) == 2, "两类显示名称必须互不相同。")
+         self.names, self.clock = list(names), clock or time.monotonic
+         self.lock = threading.RLock()
+         self.events, self.records, self.labelled = {}, [], set()
+@@ -1296,7 +1305,7 @@
+             for event in events:
+                 event_id = int(event["event_id"])
+                 if event_id in self.events: continue
+-                require(int(event["class_id"]) in (0, 1, 2), "事件类别无效。")
++                require(int(event["class_id"]) in (0, 1), "事件类别无效。")
+                 self.events[event_id] = dict(event)
+                 self.dirty = True
+ 
+@@ -1306,7 +1315,7 @@
+ 
+     def annotate(self, event_id, actual_class_id):
+         with self.lock:
+-            require(actual_class_id in (0, 1, 2), "实际动作类别无效。")
++            require(actual_class_id in (0, 1), "实际动作类别无效。")
+             require(event_id in self.events, "找不到该识别事件。")
+             require(event_id not in self.labelled, "该事件已经标注，不能重复计数。")
+             event = self.events[event_id]
+@@ -1322,7 +1331,7 @@
+ 
+     def record_miss(self, actual_class_id):
+         with self.lock:
+-            require(actual_class_id in (0, 1, 2), "实际动作类别无效。")
++            require(actual_class_id in (0, 1), "实际动作类别无效。")
+             require(not self.pending(), "请先确认待标注事件，避免把已经输出的动作记成漏检。")
+             row = self._row(actual_class_id)
+             row.update({"source": "manual_miss", "event_id": None, "predicted_class_id": None,
+@@ -1333,7 +1342,7 @@
+ 
+     def _row(self, actual):
+         return {"record_id": len(self.records)+1, "actual_class_id": int(actual),
+-            "actual_class_name": self.names[actual], "actual_marker_code": actual+11,
++            "actual_class_name": self.names[actual], "actual_marker_code": [11, 13][actual],
+             "annotation_local_clock_s": float(self.clock()),
+             "annotation_wall_time": datetime.now().isoformat(timespec="milliseconds")}
+ 
+@@ -1343,13 +1352,13 @@
+             correct = sum(r["result"] == "correct" for r in rows)
+             wrong = sum(r["result"] == "wrong" for r in rows)
+             misses = sum(r["result"] == "missed" for r in rows)
+-            matrix = [[0]*4 for _ in range(3)]
++            matrix = [[0]*3 for _ in range(2)]
+             for row in rows:
+-                matrix[row["actual_class_id"]][row["predicted_class_id"] if row["predicted_class_id"] is not None else 3] += 1
++                matrix[row["actual_class_id"]][row["predicted_class_id"] if row["predicted_class_id"] is not None else 2] += 1
+             per_class = [{"class_id": k, "class_name": self.names[k], "record_count": sum(matrix[k]),
+                 "correct": matrix[k][k], "accuracy": matrix[k][k]/sum(matrix[k]) if sum(matrix[k]) else None}
+-                for k in range(3)]
+-            summary = {"schema": "openbci_rps_posthoc_event_labels_v1", "label_source": "user_confirmation_after_prediction",
++                for k in range(2)]
++            summary = {"schema": "openbci_rp_binary_posthoc_event_labels_v1", "label_source": "user_confirmation_after_prediction",
+                 "labels_used_for_inference": False, "detector_reset_on_label": False,
+                 "recorded_actions": len(rows), "correct": correct, "wrong": wrong, "manual_misses": misses,
+                 "record_based_accuracy": correct/len(rows) if rows else None,
+@@ -1411,7 +1420,7 @@
+         self.open_csv("raw_samples.csv", ["received_row", "lsl_time_s", "received_local_clock_s", "original_sample_counter",
+             "ch1_uv", "ch2_uv", "ch3_uv", "ch4_uv", "break_before", "timestamp_invalid", "discarded_stale"])
+         self.open_csv("window_trace.csv", ["start_row", "stop_row", "decision_row", "segment_id", "qc_status", "qc_reasons", "usable",
+-            "decision_lsl_time_s", "processed_local_clock_s", "data_age_s", "predicted_class_id", "decision_0", "decision_1", "decision_2",
++            "decision_lsl_time_s", "processed_local_clock_s", "data_age_s", "predicted_class_id", "decision_0", "decision_1",
+             "activity_score", "detector_state", "output_suppressed_for_data_age", "trigger_event_id"] + FEATURE_NAMES +
+             ["activity_mode", "legacy_activity_score", "rest_calibration_revision", "rest_calibration_state",
+              "channels_above_on", "channels_above_off"] + ["activity_z_ch%d" % k for k in range(1, 5)])
+@@ -1532,6 +1541,7 @@
+         metadata = stream_record(selected)
+         inlet = open_live_inlet(lsl, selected, args.resolve_seconds)
+         local_config = {"schema": LIVE_SCHEMA, "script_version": LIVE_VERSION, "replay_engine_version": "1.1.0",
++            "source_engine": "original_three_class_06_automatic_gate_and_07_posthoc_ui",
+             "model_path": str(model_path), "model_sha256": model_digest, "detector_path": str(Path(args.detector).resolve()),
+             "detector_sha256": config_digest, "subject_id": bundle["subject_id"], "calibration_date": bundle["calibration_date"],
+             "same_calendar_date_as_calibration": bundle["calibration_date"] == datetime.now().strftime("%Y-%m-%d"),
+@@ -1540,8 +1550,8 @@
+             "continuity_scope": "optional_original_counter_plus_lsl_timestamps_and_reception_stall",
+             "board_packet_loss_fully_observable": False, "clock_processing": "LSL_proc_clocksync_only_no_dejitter",
+             "timestamp_gap_seconds": args.timestamp_gap_seconds, "max_data_age_seconds": args.max_data_age,
+-            "stall_seconds": args.stall_seconds, "class_names": names, "class_ids": [0, 1, 2],
+-            "marker_codes_for_display_only": [11, 12, 13], "gui_output_required": "TimeSeriesRaw_unfiltered_uV",
++            "stall_seconds": args.stall_seconds, "class_names": names, "class_ids": [0, 1],
++            "marker_codes_for_display_only": [11, 13], "gui_output_required": "TimeSeriesRaw_unfiltered_uV",
+             "preprocess_config": bundle["preprocess_config"], "frozen_detector": params,
+             "activity_gate_options": options, "runtime_detector_settings": effective_params,
+             "input_detector_file_modified": False,
+@@ -1755,11 +1765,12 @@
+     controls = shared.setdefault("live_controls", queue.Queue())
+     options = live_gate_options(args)
+     display_params = runtime_detector_params(params, args)
++    gate_label = ("截图临时试验" if args.gate_profile == "trial" else ("自定义" if display_params.get("runtime_gate_overrides") else ("当前静息" if options["mode"] == "robust" else "门控文件原值")))
+     root.title("OpenBCI 实时识别 · %s" % LIVE_VERSION)
+     root.geometry("940x850"); root.minsize(850, 780)
+     root.configure(bg="#f2f5fa")
+     body = ttk.Frame(root, padding=14); body.pack(fill="both", expand=True)
+-    ttk.Label(body, text="四通道 sEMG · 实时识别与动作标注", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
++    ttk.Label(body, text="四通道 sEMG · 石头/布识别（旧流程对照版）", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+     ttk.Label(body, text="%s  |  校准日期 %s  |  %s Hz  |  程序 %s" %
+         (bundle["subject_id"], bundle["calibration_date"], bundle["preprocess_config"]["fs"], LIVE_VERSION)).pack(anchor="w", pady=(5, 8))
+     gesture, state, detail = tk.StringVar(value="—"), tk.StringVar(value="正在查找LSL数据流"), tk.StringVar(value="请先启动GUI中的原始时间序列LSL输出")
+@@ -1779,6 +1790,7 @@
+     ttk.Label(body, textvariable=activity_text, wraplength=840).pack(anchor="w")
+     ttk.Label(body, textvariable=rms_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=(2, 4))
+     ttk.Label(body, textvariable=gate_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=(0, 4))
++    ttk.Label(body, text="本次门控：%s | 稳定等待%.2f秒 | %d窗至少%d票 | 放松确认%d窗" % (gate_label, display_params["settle_seconds"], display_params["vote_windows"], display_params["minimum_votes"], display_params["release_windows"]), wraplength=840, foreground="#56647a").pack(anchor="w", pady=(0, 4))
+     panel = ttk.LabelFrame(body, text="识别结束后：选择你刚才实际做的动作", padding=12)
+     panel.pack(fill="x", pady=6)
+     pending_text = tk.StringVar(value="等待第一次识别输出……")
+@@ -1957,9 +1969,51 @@
+             storage.recover_pending()
+ 
+ 
++def resolve_run_inputs(args):
++    """Resolve paths only. Never fit, prepare, rewrite or relabel input files."""
++    if not args.run:
++        return
++    require(not args.model and not args.detector, "--run与--model/--detector请选择一种提供方式，避免混用模型。")
++    require(not args.prepare_only, "--run用于现成模型的实时检测；准备门控请显式提供--model。")
++    directory = Path(args.run).expanduser().resolve()
++    state = read_json(directory / "pipeline_state.json")
++    require(state.get("schema") == "openbci_rp_binary_pipeline_v1", "不是石头/布二分类流程目录。")
++    for key, attr in [("daily_model", "model"), ("detector", "detector")]:
++        value = state.get(key)
++        require(isinstance(value, str) and value, "流程状态缺少" + key)
++        path = Path(value).expanduser()
++        if not path.is_absolute():
++            path = directory / path
++        path = path.resolve()
++        require(path.is_file(), "找不到文件：" + str(path))
++        setattr(args, attr, str(path))
++
++
++def print_input_check(args, bundle, model_path, params):
++    runtime = runtime_detector_params(params, args)
++    config = bundle["preprocess_config"]
++    result = {"script_version": LIVE_VERSION, "check_only": True,
++        "source_engine": "original_three_class_06_automatic_gate_and_07_posthoc_ui",
++        "model": str(model_path), "model_sha256": file_sha256(model_path),
++        "detector": str(Path(args.detector).expanduser().resolve()),
++        "class_names": list(args.class_names), "class_ids": [0, 1],
++        "marker_codes_for_display_only": [11, 13],
++        "model_calibration_date": bundle["calibration_date"], "activity_mode": args.activity_mode,
++        "fs": config["fs"], "window_samples": config["window_samples"],
++        "hop_samples": config["hop_samples"],
++        "thresholds": {key: runtime[key] for key in ["on_threshold", "off_threshold", "settle_seconds",
++            "vote_windows", "minimum_votes", "release_windows"]},
++        "labels_used_for_inference": False, "classifier_updated": False,
++        "runtime_gate_profile": runtime.get("runtime_gate_profile", "source"),
++        "runtime_gate_overrides": runtime.get("runtime_gate_overrides", {})}
++    print(json.dumps(json_safe(result), ensure_ascii=False, indent=2, allow_nan=False))
++
++
+ def build_live_parser():
+     p = argparse.ArgumentParser(description="OpenBCI四通道SVM实时识别；识别后点击实际动作保存标签与正确率。Python>=3.9。",
+         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
++    p.add_argument("--run", help="现有二分类pipeline_state.json所在目录；与--model/--detector二选一")
++    p.add_argument("--check-only", action="store_true", help="只检查现有模型和门控，不打开界面或连接LSL")
+     p.add_argument("--model", help="03生成的daily_model.joblib")
+     p.add_argument("--detector", help="匹配该模型的replay_detector_config.json（05 v1.1或本脚本prepare-only生成）")
+     p.add_argument("--prepare-only", action="store_true", help="只从模型的源Run1+2准备门控，不连接设备、不使用测试数据")
+@@ -1973,9 +2027,17 @@
+     p.add_argument("--channels", nargs=4, type=int, default=[1, 2, 3, 4], help="LSL中四个肌电通道，从1开始计数")
+     p.add_argument("--counter-channel", type=int, help="可选，仅当LSL确实另外包含原始Sample Index时指定；GUI TimeSeriesRaw通常不包含")
+     p.add_argument("--input-unit", choices=["uv", "mv", "v"], default="uv", help="OpenBCI GUI原始时间序列默认微伏")
+-    p.add_argument("--class-names", nargs=3, default=["石头", "剪刀", "布"], help="按Marker11、12、13顺序给按钮和识别显示命名；本项目已确认默认映射")
++    p.add_argument("--class-names", nargs=2, default=["石头", "布"], help="按Marker11、13顺序给按钮和识别显示命名；本项目已确认默认映射")
+     p.add_argument("--activity-mode", choices=["legacy", "robust"], default="legacy",
+         help="legacy沿用离线门控；robust启用启动静息测量、逐通道稳健门限和多通道确认（新方案需独立验证）")
++    p.add_argument("--gate-profile", choices=["source", "trial"], default="source",
++        help="source沿用门控文件；trial为截图临时试验：ON7.2/OFF7.0，等待0.2秒，5窗4票、5窗放松")
++    p.add_argument("--gate-on", type=float, help="覆盖本次legacy活动启动门限；必须大于放松门限")
++    p.add_argument("--gate-off", type=float, help="覆盖本次legacy活动放松门限；必须小于启动门限")
++    p.add_argument("--gate-settle-seconds", type=float, help="覆盖本次动作稳定等待秒数，非负")
++    p.add_argument("--gate-vote-windows", type=int, help="覆盖本次类别投票窗口数")
++    p.add_argument("--gate-min-votes", type=int, help="覆盖本次最少同类票数，须严格超过窗口数一半")
++    p.add_argument("--gate-release-windows", type=int, help="覆盖本次连续低活动释放窗口数")
+     p.add_argument("--rest-seconds", type=float, default=8., help="robust模式预热后连续测量静息的秒数，范围5~30")
+     p.add_argument("--min-active-channels", type=int, default=2, help="robust模式需要增强的通道数，1~4；默认2防止单路极值触发")
+     p.add_argument("--activity-on-z", type=float, default=6., help="robust模式启动门限：偏离静息中位数的稳健尺度倍数")
+@@ -1986,19 +2048,21 @@
+     p.add_argument("--timestamp-gap-seconds", type=float, default=.2, help="LSL时间戳超过此间隔则重置；不把一般GUI批量时间抖动当作确定丢包")
+     p.add_argument("--max-data-age", type=float, default=.75, help="积压超过此秒数的样本留日志但不用于输出动作")
+     p.add_argument("--stall-seconds", type=float, default=1, help="连续收不到数据超过此秒数时暂停并重置")
+-    p.add_argument("--output", default="RPS_SVM_LIVE_LABEL", help="输出父目录，每次自动新建子目录")
++    p.add_argument("--output", default="RP_BINARY_CLASSIC_LIVE_LABEL", help="输出父目录，每次自动新建子目录")
+     return p
+ 
+ 
+ def main():
+     args = build_live_parser().parse_args()
+     try:
++        require(not (args.check_only and args.prepare_only), "--check-only和--prepare-only不能同时使用。")
++        if not args.list_streams: resolve_run_inputs(args)
+         require(len(set(args.channels)) == 4 and min(args.channels) >= 1, "四个输入通道必须为互不相同的正整数。")
+         require(args.counter_channel is None or (args.counter_channel > 0 and args.counter_channel not in args.channels), "计数器通道必须独立于四个肌电通道。")
+         require(all(np.isfinite(x) and x > 0 for x in [args.resolve_seconds, args.timestamp_gap_seconds,
+                 args.max_data_age, args.stall_seconds]) and np.isfinite(args.duration) and args.duration >= 0, "时间参数无效。")
+-        require(len(set(args.class_names)) == 3 and not set(args.class_names) & {"actual_class", "漏检"},
+-                "三类名称必须互不相同，且不能使用保留名称actual_class或漏检。")
++        require(len(set(args.class_names)) == 2 and not set(args.class_names) & {"actual_class", "漏检"},
++                "两类名称必须互不相同，且不能使用保留名称actual_class或漏检。")
+         require(np.isfinite(args.rest_seconds) and 5 <= args.rest_seconds <= 30 and
+                 1 <= args.min_active_channels <= 4 and np.isfinite([args.activity_on_z, args.activity_off_z]).all()
+                 and args.activity_on_z > args.activity_off_z >= 0, "静息测量须为5~30秒，通道数须为1~4，启动门限须大于释放门限且非负。")
+@@ -2010,13 +2074,18 @@
+             return 0
+         require(args.model, "请提供 --model；查看流时可单独使用 --list-streams。")
+         if args.prepare_only:
++            require(args.gate_profile == "source" and all(getattr(args, key) is None for key in ["gate_on", "gate_off", "gate_settle_seconds", "gate_vote_windows", "gate_min_votes", "gate_release_windows"]), "实时覆盖参数不用于prepare-only；请准备原门控后在实时命令中指定。")
+             require(not args.detector, "prepare-only会生成门控，不需要 --detector。")
+             prepare_detector(args); return 0
+         require(args.detector, "请提供 --detector，或先用 --prepare-only 准备门控。")
+         bundle, model_path = load_daily(args.model)
+         params = read_json(Path(args.detector).expanduser())
+         validate_detector(bundle, model_path, params)
+-        output = make_output(args.output, "RPS_SVM_LIVE_LABEL", bundle["subject_id"])
++        runtime_detector_params(params, args)  # Validate before creating a window/thread/output.
++        if args.check_only:
++            print_input_check(args, bundle, model_path, params)
++            return 0
++        output = make_output(args.output, "RP_BINARY_CLASSIC_LIVE_LABEL", bundle["subject_id"])
+         stop, updates, shared = threading.Event(), queue.Queue(maxsize=1), {"exit_code": 0, "finished": False}
+         def publish(value):
+             try: updates.get_nowait()

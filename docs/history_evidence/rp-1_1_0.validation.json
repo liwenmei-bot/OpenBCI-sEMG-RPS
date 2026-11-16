@@ -1,0 +1,19 @@
+{
+  "version": "1.1.0-rp-stable",
+  "test_counts": {
+    "stability": 13,
+    "pipeline_regression": 10,
+    "native_lsl_sessions": 2
+  },
+  "scope": "Saved software/synthetic/native-loopback validation, not participant OpenBCI hardware accuracy.",
+  "file_hashes": {
+    "run_rp_binary.py": "859b53e742dfd095d5126b8eaa3ed4f01c379fc9c766a9d49a0b3a38617e7a58",
+    "00_collect_rp_binary_4ch.py": "787ead4034eb87c57888bdbeb8da0c0c359597146d2f5f73f4cc4492b6840973",
+    "01_preprocess_rp_binary_4ch.py": "7018f96a2fc6d3b1e6bf1904c37395aee5393b12db8e286ea6be062d08bcdfea",
+    "02_train_base_rp_binary_4ch.py": "61cf0f251dbbe904a51772d86a9be9c79af640f63be33c8afc6f9a5987f29d0a",
+    "03_calibrate_rp_binary_4ch.py": "ca52124d4432887b50b44a5cda1e1d8c6d8247c00f940e6ff9b2cc342bed7179",
+    "07_live_rp_binary_label_4ch.py": "443ab33724df0846c2a172093bdb83bfb6b8ff56c05a0288c364c839a71ad4e7"
+  },
+  "historical_original_manifest_sha256": "e7c9842d41845f4a4f5659b5f13cda844e7af10faff1a76872dee9dea453618d",
+  "reexecuted_for_this_history_writeup": false
+}

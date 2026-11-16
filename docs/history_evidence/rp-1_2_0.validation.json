@@ -1,0 +1,20 @@
+{
+  "version": "1.2.0-rp-guided",
+  "test_counts": {
+    "guided": 17,
+    "compatibility": 13,
+    "pipeline": 10,
+    "native_lsl_sessions": 2
+  },
+  "scope": "Saved software/synthetic/native-loopback validation, not participant OpenBCI hardware accuracy.",
+  "file_hashes": {
+    "00_collect_rp_binary_4ch.py": "787ead4034eb87c57888bdbeb8da0c0c359597146d2f5f73f4cc4492b6840973",
+    "01_preprocess_rp_binary_4ch.py": "7018f96a2fc6d3b1e6bf1904c37395aee5393b12db8e286ea6be062d08bcdfea",
+    "02_train_base_rp_binary_4ch.py": "61cf0f251dbbe904a51772d86a9be9c79af640f63be33c8afc6f9a5987f29d0a",
+    "03_calibrate_rp_binary_4ch.py": "ca52124d4432887b50b44a5cda1e1d8c6d8247c00f940e6ff9b2cc342bed7179",
+    "07_live_rp_binary_label_4ch.py": "50afc8e0de8e7a225ae996c64fa88ac78716f01e8049273d77cb2300cf66ae7b",
+    "run_rp_binary.py": "42ca2d4acb7c3408c2d879739ab4e91c7c03977c95a4b8e9ad3369223dade4dc"
+  },
+  "historical_original_manifest_sha256": "0169187d89db176203b887b4e8f97978a45845567e81c86d3fb6c09d16d46189",
+  "reexecuted_for_this_history_writeup": false
+}

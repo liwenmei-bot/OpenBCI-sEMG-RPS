@@ -1,0 +1,31 @@
+{
+  "version": "1.3.1-rp-rest",
+  "test_counts": {
+    "threshold_controls": 7,
+    "rest_only_and_label_isolation": 14,
+    "compatibility": 13
+  },
+  "scope": "Saved software/synthetic/native-loopback validation, not participant OpenBCI hardware accuracy.",
+  "file_hashes": {
+    "07_live_rp_binary_label_4ch.py": "617f931c13dc0b7c1ba0e4d2a3e8e94aa41262f7b4a9c8f2a651a18718faa127",
+    "run_rp_binary.py": "2ec0d357946d82bea07f7b497079074c755c99d13d08a86c8b038245d9e982b9"
+  },
+  "historical_original_manifest_sha256": "9dc0534be37d08e75cd994dbab92cbc441b0389afc0169cda1479967e56d7936",
+  "reexecuted_for_this_history_writeup": false,
+  "default_thresholds": {
+    "on": 6.0,
+    "off": 3.0
+  },
+  "proposed_comparison_only": {
+    "on": 4.0,
+    "off": 3.0
+  },
+  "algorithm_classes_unchanged_from_v130": [
+    "extract_features",
+    "CausalWindowStream",
+    "GestureDetector",
+    "RestOnlyActivityGate",
+    "PosthocLabels",
+    "TransportGuard"
+  ]
+}

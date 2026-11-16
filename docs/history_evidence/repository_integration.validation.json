@@ -1,0 +1,10 @@
+{
+  "scope": "Software integration and synthetic validation only.",
+  "previously_verified_commit": "fe4654cfe6c1d659fe589955d3e52ac71f5b87d4",
+  "github_actions_url": "https://github.com/liwenmei-bot/OpenBCI-sEMG-RPS/actions/runs/43696410148",
+  "previously_verified_conclusion": "success",
+  "unit_tests": 25,
+  "cli_configuration_checks": 22,
+  "initial_source_files": 38,
+  "hardware_accuracy_verified": false
+}

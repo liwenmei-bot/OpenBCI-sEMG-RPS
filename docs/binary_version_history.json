@@ -1,0 +1,644 @@
+{
+  "schema": "openbci_rp_binary_version_history_v1",
+  "recorded_on": "2026-11-15",
+  "scope": "Recovered source snapshots and saved validation records for the two binary branches and integrated runner.",
+  "date_policy": "Unknown original release dates are null. Version ordering is not reconstructed historical Git commit chronology.",
+  "source_snapshot_gaps": [
+    "classic-1.0.0: construction evidence exists, independently verifiable full source snapshot not found."
+  ],
+  "active_files": [
+    {
+      "path": "binary/07_live_rp_binary_label_4ch.py",
+      "revision": "classic-1.0.1",
+      "sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a"
+    },
+    {
+      "path": "binary/07_live_rp_binary_extended_4ch.py",
+      "revision": "rp-1.4.0",
+      "historical_filename": "07_live_rp_binary_label_4ch.py",
+      "sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29"
+    },
+    {
+      "path": "binary/run_rp_binary.py",
+      "revision": "repository-integration-20261115",
+      "sha256": "0ac09082f5089ae42dbe2f257f099283877a42324cfb98df316dc110d5e7de64"
+    }
+  ],
+  "revisions": [
+    {
+      "id": "rp-1.0.0",
+      "version": "1.0.0-rp-binary",
+      "branch": "extended",
+      "parent": null,
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "建立石头/布二分类链路",
+      "changes": [
+        "Marker11/13映射为class0/1；历史剪刀记录被排除，不充当静息。",
+        "默认legacy沿用配套离线活动参考与启动/释放、投票参数。",
+        "实时输出后人工标注；标注用于统计，冻结SVM和门控。"
+      ],
+      "limitations": [
+        "缺少真实静息和动作起始真值时，不能从候选次数计算准确率或物理延迟。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_0_0/07_live_rp_binary_label_4ch.py",
+          "sha256": "a5f10a9f99847aa9c0ffe1f349a2433c4cb656f97e2e4d192a57eb27a230b4fe",
+          "bytes": 123442,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "legacy",
+                "robust"
+              ],
+              "default": "legacy"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_0_0/run_rp_binary.py",
+          "sha256": "15cc721108516dd6db055125301cf21e9ea3ca090c134357e5308d1e0deebd5e",
+          "bytes": 19696,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "legacy",
+                "robust"
+              ],
+              "default": "legacy"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "rp-1.1.0",
+      "version": "1.1.0-rp-stable",
+      "branch": "extended",
+      "parent": "rp-1.0.0",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "处理放松确认不稳定和重复触发",
+      "changes": [
+        "默认活动模式由legacy改为robust，启动时测量约8秒当前静息。",
+        "stable配置至少等待0.5秒，至少5窗/80%票，末两窗一致，释放至少5窗；保留replay对照。",
+        "增加低活动后的候选重启、确认进度与原始峰峰值等日志/提示。"
+      ],
+      "limitations": [
+        "更严格的确认可能增加等待时间；软件测试不等于真实板卡更准确。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_1_0/07_live_rp_binary_label_4ch.py",
+          "sha256": "443ab33724df0846c2a172093bdb83bfb6b8ff56c05a0288c364c839a71ad4e7",
+          "bytes": 127610,
+          "cli_defaults": {
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--activity-mode": {
+              "choices": [
+                "legacy",
+                "robust"
+              ],
+              "default": "robust"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_1_0/run_rp_binary.py",
+          "sha256": "859b53e742dfd095d5126b8eaa3ed4f01c379fc9c766a9d49a0b3a38617e7a58",
+          "bytes": 19970,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "legacy",
+                "robust"
+              ],
+              "default": "robust"
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/rp-1_1_0.validation.json",
+      "diff_path": "docs/version_diffs/rp-1_1_0.patch"
+    },
+    {
+      "id": "rp-1.2.0",
+      "version": "1.2.0-rp-guided",
+      "branch": "extended",
+      "parent": "rp-1.1.0",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "尝试用当前静息和短动作参考修正活动门控",
+      "changes": [
+        "增加GuidedActivityGate及测石头/测布参考按钮；默认guided。",
+        "扩展阻塞原因说明、界面布局和流选择核对。",
+        "SVM保持冻结，但门控使用带已知动作名称的参考。"
+      ],
+      "limitations": [
+        "这个历史版本需要提前采集命名动作参考，不符合后来要求的完全自由动作交互，随后被rest-only替代。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_2_0/07_live_rp_binary_label_4ch.py",
+          "sha256": "50afc8e0de8e7a225ae996c64fa88ac78716f01e8049273d77cb2300cf66ae7b",
+          "bytes": 149433,
+          "cli_defaults": {
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--activity-mode": {
+              "choices": [
+                "guided",
+                "legacy",
+                "robust"
+              ],
+              "default": "guided"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_2_0/run_rp_binary.py",
+          "sha256": "42ca2d4acb7c3408c2d879739ab4e91c7c03977c95a4b8e9ad3369223dade4dc",
+          "bytes": 26950,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "guided",
+                "legacy",
+                "robust"
+              ],
+              "default": "guided"
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/rp-1_2_0.validation.json",
+      "diff_path": "docs/version_diffs/rp-1_2_0.patch"
+    },
+    {
+      "id": "rp-1.3.0",
+      "version": "1.3.0-rp-rest",
+      "branch": "extended",
+      "parent": "rp-1.2.0",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "取消提前选择动作参考，恢复先动作后判断",
+      "changes": [
+        "删除GuidedActivityGate，增加仅测当前静息的RestOnlyActivityGate，默认rest。",
+        "采用当前静息的稳健RMS偏离；保留legacy和robust对照。",
+        "预测后实际动作只用于评分；相反事后标签的模拟测试得到相同轨迹与事件。"
+      ],
+      "limitations": [
+        "新日期、电极和幅度变化仍需验证；没有引入新的分类器训练。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_3_0/07_live_rp_binary_label_4ch.py",
+          "sha256": "9a53cecc5da3bc9cb88254263173ef05fd709ca65146243d320001a9ebbd5fc9",
+          "bytes": 139183,
+          "cli_defaults": {
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_3_0/run_rp_binary.py",
+          "sha256": "17ccdae6e98c3015720933c9f602db0ca93c7c8c8dfeb071493ed9c586d3f477",
+          "bytes": 26831,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/rp-1_3_0.validation.json",
+      "diff_path": "docs/version_diffs/rp-1_3_0.patch"
+    },
+    {
+      "id": "rp-1.3.1",
+      "version": "1.3.1-rp-rest",
+      "branch": "extended",
+      "parent": "rp-1.3.0",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "把活动不足与类别投票不稳分开解释",
+      "changes": [
+        "界面明确显示当前活动相对ON/OFF、启动进度及释放原因。",
+        "run入口开放activity-on-z和activity-off-z。",
+        "默认仍为ON=6/OFF=3；4/3只是待比较设置，未静默替换默认值。"
+      ],
+      "limitations": [
+        "特征、滤波、分类器及主要门控类与1.3.0保持一致；这次主要完善参数入口和状态解释。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_3_1/07_live_rp_binary_label_4ch.py",
+          "sha256": "617f931c13dc0b7c1ba0e4d2a3e8e94aa41262f7b4a9c8f2a651a18718faa127",
+          "bytes": 140518,
+          "cli_defaults": {
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_3_1/run_rp_binary.py",
+          "sha256": "2ec0d357946d82bea07f7b497079074c755c99d13d08a86c8b038245d9e982b9",
+          "bytes": 27302,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "replay"
+              ],
+              "default": "stable"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/rp-1_3_1.validation.json",
+      "diff_path": "docs/version_diffs/rp-1_3_1.patch"
+    },
+    {
+      "id": "rp-1.3.2",
+      "version": "1.3.2-rp-rest",
+      "branch": "extended",
+      "parent": "rp-1.3.1",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "排查保持动作十几秒才输出",
+      "changes": [
+        "新增可选responsive配置；默认仍为stable。",
+        "对短暂且有效的活动回落做去抖，并限制投票历史的最大年龄。",
+        "记录候选重启次数、活动回落进度和累计确认时间；无效/QC/过时数据仍拦截。"
+      ],
+      "limitations": [
+        "固定预测的合成回落序列曾由stable12.9秒变为responsive1.0秒；这不是受试者或板卡实测延迟。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_3_2/07_live_rp_binary_label_4ch.py",
+          "sha256": "c25ced6716c81def17439156269caadc3676a5c238a276096addb0abe6272ee9",
+          "bytes": 144123,
+          "cli_defaults": {
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "responsive",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_3_2/run_rp_binary.py",
+          "sha256": "453ad98a6591ba6fdc936bb27b37d8729c689d621e8d10cc06e763d2972ccf65",
+          "bytes": 27439,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "responsive",
+                "replay"
+              ],
+              "default": "stable"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/rp-1_3_2.validation.json",
+      "diff_path": "docs/version_diffs/rp-1_3_2.patch"
+    },
+    {
+      "id": "rp-1.4.0",
+      "version": "1.4.0-rp-button",
+      "branch": "extended",
+      "parent": "rp-1.3.2",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "改为点击开始后做动作，约3—4秒结束再判断",
+      "changes": [
+        "新增ButtonGestureDetector及trigger-mode manual；版本默认仍为auto。",
+        "按钮模式默认4秒，前1秒作为过渡，其后有效窗口汇总分类，结束前不输出。",
+        "按钮模式绕过活动门限，保留质量/时效检查及有效窗比例要求；结果后才标注实际类别。",
+        "该源文件后来在binary目录明确命名为07_live_rp_binary_extended_4ch.py。"
+      ],
+      "limitations": [
+        "支持3—4秒采集，默认4秒；没有预先输入真实类别，没有重训SVM。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/v1_4_0/07_live_rp_binary_label_4ch.py",
+          "sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29",
+          "bytes": 160969,
+          "cli_defaults": {
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "responsive",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--trigger-mode": {
+              "choices": [
+                "auto",
+                "manual"
+              ],
+              "default": "auto"
+            },
+            "--manual-duration-seconds": {
+              "default": 4.0
+            },
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            }
+          }
+        },
+        {
+          "role": "runner",
+          "path": "archive/binary/v1_4_0/run_rp_binary.py",
+          "sha256": "249ebdb00ecbe11d7576da119bd47bf319d6f817a7fd4296b07546003cb3e599",
+          "bytes": 28163,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": "rest"
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "responsive",
+                "replay"
+              ],
+              "default": "stable"
+            },
+            "--trigger-mode": {
+              "choices": [
+                "auto",
+                "manual"
+              ],
+              "default": "auto"
+            },
+            "--manual-duration-seconds": {
+              "default": 4.0
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/rp-1_4_0.validation.json",
+      "diff_path": "docs/version_diffs/rp-1_4_0.patch"
+    },
+    {
+      "id": "classic-1.0.0",
+      "version": "1.0.0-rp-classic",
+      "branch": "classic",
+      "parent": null,
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": false,
+      "purpose": "从原三分类06/07建立旧流程二分类对照分支",
+      "changes": [
+        "保留原06因果滤波、窗口、活动分数与自动状态机，适配两类输出及11/13映射。",
+        "沿用三分类07的预测后标注界面，增加--run路径解析与--check-only。"
+      ],
+      "limitations": [
+        "只找到包含该分支起点的构建记录，未找到可独立校验的1.0.0完整原始快照；未用重建代码冒充原件。"
+      ],
+      "files": [],
+      "evidence_path": "docs/history_evidence/classic.validation.json"
+    },
+    {
+      "id": "classic-1.0.1",
+      "version": "1.0.1-rp-classic-tune",
+      "branch": "classic",
+      "parent": "classic-1.0.0",
+      "original_release_date": null,
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "在旧流程分支增加显式门控试验，并保持默认source",
+      "changes": [
+        "默认source原样使用门控JSON；增加gate-profile trial和六项显式覆盖。",
+        "trial共享ON7.2/OFF7.0、等待0.2秒、5窗4票、5窗释放；写入日志并标明未独立验证。",
+        "拒绝legacy阈值与robust分数混用，并在创建界面前核对参数。",
+        "二分类有符号间隔及零边界与SVC.predict语义对齐；所有实际动作标签仍仅用于事后统计。"
+      ],
+      "limitations": [
+        "trial来自少量截图，不能宣称适用于所有日期或已提升真实准确率。"
+      ],
+      "files": [
+        {
+          "role": "live",
+          "path": "archive/binary/classic_v1_0_1/07_live_rp_binary_label_4ch.py",
+          "sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a",
+          "bytes": 131520,
+          "cli_defaults": {
+            "--activity-mode": {
+              "choices": [
+                "legacy",
+                "robust"
+              ],
+              "default": "legacy"
+            },
+            "--gate-profile": {
+              "choices": [
+                "source",
+                "trial"
+              ],
+              "default": "source"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/classic.validation.json",
+      "adaptation_comparison_path": "docs/version_diffs/rps07_to_classic_1_0_1.patch"
+    },
+    {
+      "id": "repository-integration-20261115",
+      "version": "repository-integration-20261115",
+      "branch": "integration",
+      "parent": "rp-1.4.0",
+      "original_release_date": "2026-11-15",
+      "recorded_on": "2026-11-15",
+      "source_snapshot_available": true,
+      "purpose": "把classic和extended作为独立引擎接入统一入口",
+      "changes": [
+        "根目录run.py调用binary/run_rp_binary.py；默认classic，按钮对照显式extended。",
+        "按引擎过滤和转发参数，避免将按钮参数传入classic；默认source不自动套用截图试验阈值。",
+        "训练、校准与回放帮助逻辑保留；活跃算法文件仅明确命名和组织。"
+      ],
+      "limitations": [
+        "版本比较工具的“run入口+extended”组合另有兼容问题，本次历史补录未修改该工具。"
+      ],
+      "files": [
+        {
+          "role": "runner",
+          "path": "archive/binary/repository_integration_20261115/run_rp_binary.py",
+          "sha256": "0ac09082f5089ae42dbe2f257f099283877a42324cfb98df316dc110d5e7de64",
+          "bytes": 30241,
+          "cli_defaults": {
+            "--engine": {
+              "choices": [
+                "classic",
+                "extended"
+              ],
+              "default": "classic"
+            },
+            "--activity-mode": {
+              "choices": [
+                "rest",
+                "legacy",
+                "robust"
+              ],
+              "default": null
+            },
+            "--live-profile": {
+              "choices": [
+                "stable",
+                "responsive",
+                "replay"
+              ],
+              "default": null
+            },
+            "--trigger-mode": {
+              "choices": [
+                "auto",
+                "manual"
+              ],
+              "default": "auto"
+            },
+            "--manual-duration-seconds": {
+              "default": null
+            },
+            "--gate-profile": {
+              "choices": [
+                "source",
+                "trial"
+              ],
+              "default": "source"
+            }
+          }
+        }
+      ],
+      "evidence_path": "docs/history_evidence/repository_integration.validation.json",
+      "diff_path": "docs/version_diffs/repository-integration-20261115.patch"
+    }
+  ]
+}

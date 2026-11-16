@@ -1,0 +1,249 @@
+--- archive/binary/v1_3_1/07_live_rp_binary_label_4ch.py
++++ archive/binary/v1_3_2/07_live_rp_binary_label_4ch.py
+@@ -530,6 +530,7 @@
+         self.segment_id = None
+         self.events = []
+         self.active_event = None
++        self.candidate_restarts = 0
+         self.reset_state()
+ 
+     def reset_state(self):
+@@ -537,6 +538,19 @@
+         self.on_count, self.off_count = 0, 0
+         self.onset_candidate_row = None
+         self.history = deque(maxlen=int(self.params["vote_windows"]))
++        self.history_rows = deque(maxlen=int(self.params["vote_windows"]))
++        self.candidate_dip_count = 0
++
++    def clear_votes(self):
++        self.history.clear(); self.history_rows.clear()
++
++    def append_vote(self, row, predicted, decision_scores):
++        maximum_age = self.params.get("vote_history_max_age_samples")
++        if maximum_age is not None:
++            while self.history_rows and row-self.history_rows[0] > maximum_age:
++                self.history_rows.popleft(); self.history.popleft()
++        self.history.append((int(predicted), np.asarray(decision_scores, dtype=float)))
++        self.history_rows.append(int(row))
+ 
+     def close(self, row, reason):
+         if self.active_event is not None:
+@@ -557,7 +571,8 @@
+         if self.off_count >= self.params["release_windows"]:
+             self.close(row, "low_activity_release")
+             self.active, self.emitted, self.armed = False, False, True
+-            self.on_count = 0; self.onset_candidate_row = None; self.history.clear()
++            self.on_count = 0; self.onset_candidate_row = None; self.clear_votes()
++            self.candidate_dip_count = 0
+             return "released", None
+         if not self.armed:
+             return "waiting_for_release", None
+@@ -565,40 +580,47 @@
+             return "active_latched", None
+         hold_threshold = float(self.params.get("candidate_hold_threshold", self.params["on_threshold"]))
+         if self.params.get("restart_settle_after_activity_drop", False) and activity < hold_threshold:
+-            # 尚未输出时，动作候选必须连续；低活动后重新确认起点及稳定等待。
+-            # 已输出事件仍只由真正连续低于OFF的窗口释放，不按时间强制解锁。
++            self.candidate_dip_count += 1
++            allowed = int(self.params.get("candidate_drop_windows", 1))
++            if self.onset_candidate_row is not None and self.candidate_dip_count < allowed:
++                # An invalid/QC/stale frame never reaches this branch. A short
++                # finite amplitude dip contributes no vote and authorizes no event.
++                return "candidate_dip_waiting", None
++            if self.onset_candidate_row is not None: self.candidate_restarts += 1
+             self.active, self.on_count, self.onset_candidate_row = False, 0, None
+-            self.history.clear()
++            self.clear_votes()
+             return "quiet_or_candidate", None
++        self.candidate_dip_count = 0
+         settle_samples = int(self.params.get("settle_samples", 0))
+         if not self.active:
+             if activity >= self.params["on_threshold"]:
+                 if self.on_count == 0: self.onset_candidate_row = int(row)
+                 self.on_count += 1
+                 if row - self.onset_candidate_row >= settle_samples:
+-                    self.history.append((int(predicted), np.asarray(decision_scores, dtype=float)))
++                    self.append_vote(row, predicted, decision_scores)
+                 else:
+-                    self.history.clear()
++                    self.clear_votes()
+             else:
+-                self.on_count = 0; self.onset_candidate_row = None; self.history.clear()
++                if self.onset_candidate_row is not None: self.candidate_restarts += 1
++                self.on_count = 0; self.onset_candidate_row = None; self.clear_votes()
+             if self.on_count < self.params["on_windows"]:
+                 return "quiet_or_candidate", None
+             self.active = True
+         else:
+             # 释放滞回只用于保持事件锁定；它不能授权在低活动时发出新事件。
+             if activity < hold_threshold:
+-                self.history.clear()
++                self.clear_votes()
+                 return "activity_below_on_waiting", None
+             if row - self.onset_candidate_row < settle_samples:
+-                self.history.clear()
++                self.clear_votes()
+                 return "settling", None
+-            self.history.append((int(predicted), np.asarray(decision_scores, dtype=float)))
++            self.append_vote(row, predicted, decision_scores)
+         if activity < self.params["on_threshold"]:
+             if "candidate_hold_threshold" not in self.params:
+-                self.history.clear()
++                self.clear_votes()
+             return "activity_below_on_waiting", None
+         if row - self.onset_candidate_row < settle_samples:
+-            self.history.clear()
++            self.clear_votes()
+             return "settling", None
+         if len(self.history) < self.params["vote_windows"]:
+             return "collecting_votes", None
+@@ -758,11 +780,12 @@
+ import queue
+ import threading
+ 
+-LIVE_VERSION = "1.3.1-rp-rest"
++LIVE_VERSION = "1.3.2-rp-rest"
+ LIVE_SCHEMA = "openbci_rp_binary_4ch_svm_live_v1"
+ STATE_NAMES = {
+     "waiting_for_release": "请先放松手臂", "released": "已放松，等待动作",
+     "quiet_or_candidate": "正在确认活动启动", "collecting_votes": "正在稳定判决",
++    "candidate_dip_waiting": "活动短暂回落，等待恢复",
+     "settling": "等待动作稳定", "unstable": "类别尚未稳定",
+     "activity_below_on_waiting": "活动低于启动门限，暂不输出", "active_latched": "已识别，请放松后再做下一次",
+     "triggered": "已识别，请放松后再做下一次", "quality_lock": "信号异常，请检查后放松",
+@@ -790,6 +813,9 @@
+             return "活动 %.2f > 释放 %.2f，尚未解除锁定" % (activity, off)
+         return "尚未确认放松：%d/%d窗" % (snapshot.get("release_progress", 0), snapshot.get("release_required", 0))
+     if state == "released": return "已放松，可以做动作"
++    if state == "candidate_dip_waiting":
++        return "活动短暂回落：%d/%d窗；当前不输出，恢复后继续确认" % (
++            snapshot.get("candidate_dip_progress", 0), snapshot.get("candidate_dip_required", 0))
+     if state in {"quiet_or_candidate", "activity_below_on_waiting"}:
+         activity, on = snapshot.get("activity"), snapshot.get("on_threshold")
+         if activity is not None and on is not None and np.isfinite([activity, on]).all():
+@@ -1000,9 +1026,9 @@
+     result = dict(params)
+     options = live_gate_options(args)
+     profile = getattr(args, "live_profile", "stable")
+-    require(profile in {"stable", "replay"}, "实时确认配置必须为stable或replay。")
++    require(profile in {"stable", "responsive", "replay"}, "实时确认配置必须为stable、responsive或replay。")
+     result["live_profile"] = profile
+-    if profile == "stable":
++    if profile in {"stable", "responsive"}:
+         fs = float(params["preprocess_config"]["fs"])
+         hop = int(params["hop_samples"])
+         width = max(5, int(params["vote_windows"]))
+@@ -1017,6 +1043,13 @@
+             "live_confirmation_settings_empirically_validated": False,
+         })
+         result["settle_seconds"] = result["settle_samples"]/fs
++        if profile == "responsive":
++            require(options["mode"] == "rest", "responsive仅用于rest静息参考模式。")
++            result.update({"on_windows": max(2, int(params["on_windows"])),
++                "candidate_drop_windows": 3,
++                "vote_history_max_age_samples": (width+2)*hop,
++                "responsive_changes": "two_on_windows_and_debounced_candidate_drop_with_bounded_vote_age",
++                "responsive_settings_empirically_validated": False})
+     if options["mode"] == "robust":
+         result.update({"on_threshold": options["on_z"], "off_threshold": options["off_z"],
+             "activity_score": "kth_largest_channel_robust_rms_z",
+@@ -1314,6 +1347,9 @@
+                     "release_required": self.params["release_windows"],
+                     "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"],
+                     "onset_candidate_row": self.detector.onset_candidate_row,
++                    "candidate_dip_progress": self.detector.candidate_dip_count,
++                    "candidate_dip_required": int(self.params.get("candidate_drop_windows", 1)),
++                    "candidate_restarts": self.detector.candidate_restarts,
+                     "settle_elapsed_s": None if self.detector.onset_candidate_row is None else
+                         (frame["decision_row"]-self.detector.onset_candidate_row)/float(self.config["fs"])})
+                 record.update({"decision_%d" % k: scores[i, k] for k in range(2)})
+@@ -1343,6 +1379,11 @@
+             "on_threshold": float(self.params["on_threshold"]), "off_threshold": float(self.params["off_threshold"]),
+             "on_progress": min(self.detector.on_count, self.params["on_windows"]),
+             "on_required": self.params["on_windows"],
++            "candidate_dip_progress": self.detector.candidate_dip_count,
++            "candidate_dip_required": int(self.params.get("candidate_drop_windows", 1)),
++            "candidate_restarts": self.detector.candidate_restarts,
++            "candidate_elapsed_s": None if self.detector.onset_candidate_row is None else max(0.,
++                (self.stream.position-1-self.detector.onset_candidate_row)/float(self.config["fs"])),
+             "release_progress": min(self.detector.off_count, self.params["release_windows"]),
+             "release_required": self.params["release_windows"],
+             "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"]}
+@@ -1569,6 +1610,7 @@
+             ["activity_mode", "legacy_activity_score", "rest_calibration_revision", "rest_calibration_state",
+              "channels_above_on", "channels_above_off", "live_profile", "release_progress", "release_required",
+              "vote_progress", "vote_required", "onset_candidate_row", "settle_elapsed_s"] +
++            ["candidate_dip_progress", "candidate_dip_required", "candidate_restarts"] +
+             ["raw_p2p_ch%d" % k for k in range(1, 5)] + ["activity_z_ch%d" % k for k in range(1, 5)])
+         self.open_csv("transport_issues.csv", ["received_row", "reason", "timestamp_dt_s", "wall_time"])
+         self.open_csv("transport_health.csv", ["wall_time", "received_samples", "local_clock_s",
+@@ -1947,7 +1989,8 @@
+     controls = shared.setdefault("live_controls", queue.Queue())
+     options = live_gate_options(args)
+     display_params = runtime_detector_params(params, args)
+-    root.title("OpenBCI 实时识别 · %s" % LIVE_VERSION)
++    profile_name = {"stable":"稳定模式", "responsive":"响应模式", "replay":"离线参数模式"}[args.live_profile]
++    root.title("OpenBCI 实时识别 · %s · %s" % (LIVE_VERSION, profile_name))
+     root.configure(bg="#f2f5fa")
+     body, footer = make_live_layout(root, tk, ttk)
+     ttk.Label(body, text="四通道 sEMG · 实时识别与动作标注", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+@@ -2033,6 +2076,9 @@
+     ttk.Label(body, text="等待稳定 %.2f秒；%d窗至少%d票；放松需连续%d窗确认。" %
+         (display_params["settle_seconds"], display_params["vote_windows"], display_params["minimum_votes"],
+          display_params["release_windows"]), wraplength=760).pack(anchor="w")
++    if args.live_profile == "responsive":
++        ttk.Label(body, text="响应模式：短暂活动回落不立即清空进度；输出仍需活动达标与类别投票通过。",
++            wraplength=760, foreground="#56647a").pack(anchor="w")
+     ttk.Label(body, text="输出目录：" + str(output), wraplength=760, foreground="#56647a").pack(anchor="w", pady=3)
+     storage_notice = tk.StringVar(value="")
+     ttk.Label(body, textvariable=storage_notice, wraplength=760, foreground="#ad5c00").pack(anchor="w", pady=2)
+@@ -2131,6 +2177,11 @@
+                 if "release_progress" in current:
+                     detail.set(detail.get()+" | 放松确认%d/%d | 投票%d/%d" %
+                         (current["release_progress"], current["release_required"], current["vote_progress"], current["vote_required"]))
++                if "candidate_restarts" in current:
++                    detail.set(detail.get()+" | 候选重启%d次" % current["candidate_restarts"])
++                elapsed = current.get("candidate_elapsed_s")
++                if elapsed is not None and status not in {"triggered", "active_latched"}:
++                    detail.set(detail.get()+" | 本次确认%.1f秒" % elapsed)
+             resubscribe_button.configure(state="disabled" if stop.is_set() or not controls.empty() or
+                 status in {"connecting", "resyncing"} else "normal")
+             rest_button.configure(state="disabled" if options["mode"] not in {"rest", "robust"} or stop.is_set() or
+@@ -2181,8 +2232,8 @@
+     p.add_argument("--counter-channel", type=int, help="可选，仅当LSL确实另外包含原始Sample Index时指定；GUI TimeSeriesRaw通常不包含")
+     p.add_argument("--input-unit", choices=["uv", "mv", "v"], default="uv", help="OpenBCI GUI原始时间序列默认微伏")
+     p.add_argument("--class-names", nargs=2, default=["石头", "布"], help="按Marker11、13顺序给按钮和识别显示命名；本项目已确认默认映射")
+-    p.add_argument("--live-profile", choices=["stable", "replay"], default="stable",
+-        help="stable：至少等待0.5秒、5窗4票、末两窗一致、连续5窗放松释放；replay：使用原离线确认参数")
++    p.add_argument("--live-profile", choices=["stable", "responsive", "replay"], default="stable",
++        help="stable：保持原确认；responsive：rest模式容忍短暂活动回落，保留至少5窗4票与末两窗一致；replay：原离线确认")
+     p.add_argument("--activity-mode", choices=["rest", "legacy", "robust"], default="rest",
+         help="rest：仅测当前静息后自由动作，识别后标注；robust：旧固定多路门控；legacy：原离线门控")
+     p.add_argument("--rest-seconds", type=float, default=8., help="rest/robust模式的有效静息参考秒数，范围5~30")
+@@ -2211,6 +2262,7 @@
+         require(np.isfinite(args.rest_seconds) and 5 <= args.rest_seconds <= 30 and
+                 1 <= args.min_active_channels <= 4 and np.isfinite([args.activity_on_z, args.activity_off_z]).all()
+                 and args.activity_on_z > args.activity_off_z >= 0, "静息测量须为5~30秒，通道数须为1~4，启动门限须大于释放门限且非负。")
++        require(args.live_profile != "responsive" or args.activity_mode == "rest", "responsive仅用于rest静息参考模式。")
+         if args.list_streams:
+             lsl = import_lsl()
+             streams = lsl.resolve_streams(wait_time=args.resolve_seconds)
+--- archive/binary/v1_3_1/run_rp_binary.py
++++ archive/binary/v1_3_2/run_rp_binary.py
+@@ -15,6 +15,7 @@
+ Run1拟合，Run2选择权重/门控，Run1+2最终拟合，Run3+4独立测试。
+ 1.3.0实时修订：仅测当前静息；自由做动作，由冻结SVM判断，再点击实际动作保存统计。
+ 1.3.1：live可显式传入--activity-on-z与--activity-off-z；默认6/3，调参只影响活动门控。
++1.3.2：可选--live-profile responsive，容忍短暂活动回落并限制投票历史年龄；不会超时强制输出。
+ 离线回放继续使用冻结的原门控。要比较原规则，live添加--live-profile replay --activity-mode legacy。
+ 手工动作标注只评估，不训练、不重置检测器。减为两类不能修复上游流积压。
+ """
+@@ -372,7 +373,7 @@
+     q.add_argument('--run',required=True,help='包含pipeline_state.json的本次输出目录')
+     q.add_argument('--stream-name',default='rps_raw')
+     q.add_argument('--activity-mode',choices=['rest','legacy','robust'],default='rest')
+-    q.add_argument('--live-profile',choices=['stable','replay'],default='stable')
++    q.add_argument('--live-profile',choices=['stable','responsive','replay'],default='stable')
+     q.add_argument('--rest-seconds',type=float,default=8.)
+     q.add_argument('--activity-on-z',type=float,default=6.,help='rest/robust启动门限；6为默认工程设置，并非个体最优值')
+     q.add_argument('--activity-off-z',type=float,default=3.,help='rest/robust释放门限，须小于启动门限')

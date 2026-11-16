@@ -1,0 +1,39 @@
+{
+  "version": "classic branch",
+  "initial_full_snapshot_available": false,
+  "construction_record_sha256": "744bba01cc95daf5389947386272dd84608105fd4092b06a0b88c584730d0c7d",
+  "construction_record_contains_initial_version_literal": "1.0.0-rp-classic",
+  "source_three_class_07_sha256": "950db6f1c2fa1c44ee38e62be5e0e64c793c50315a9fc7305820505fae88f173",
+  "source_three_class_06_sha256": "12c54407be23b868c3ea047f419355f61e942f563337c18edfefd80192894744",
+  "snapshot_1_0_1_sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a",
+  "saved_test_logs": [
+    {
+      "name": "tests.log",
+      "sha256": "483498880ce6270a5d1e26e2536c2630eb4bffe19ca583da17425f5913609ff4",
+      "reported_tests": [
+        11
+      ],
+      "reported_success": true,
+      "reexecuted_for_this_history_writeup": false
+    },
+    {
+      "name": "tuning_tests.log",
+      "sha256": "dfc5c8b278d7dcf8de9987ab7200b42bc4bdb6ad89740d3ef01f690f2afd7a49",
+      "reported_tests": [
+        9
+      ],
+      "reported_success": true,
+      "reexecuted_for_this_history_writeup": false
+    },
+    {
+      "name": "signal_audit_tests.log",
+      "sha256": "bf509b4c73864e72d2ce4e8e4136b54662e68429d8f6f4155fc69737e2cb8588",
+      "reported_tests": [
+        9
+      ],
+      "reported_success": true,
+      "reexecuted_for_this_history_writeup": false
+    }
+  ],
+  "scope": "Saved synthetic/receiver/UI-callback tests; no new participant board validation."
+}

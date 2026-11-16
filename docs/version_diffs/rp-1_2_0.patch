@@ -1,0 +1,825 @@
+--- archive/binary/v1_1_0/07_live_rp_binary_label_4ch.py
++++ archive/binary/v1_2_0/07_live_rp_binary_label_4ch.py
+@@ -4,7 +4,8 @@
+ 
+ 石头 Marker11 -> class0；布 Marker13 -> class1。静息由活动门控处理。
+ Python >= 3.9；依赖 numpy pandas scipy scikit-learn joblib，实时另需 pylsl。
+-实时修订版 1.1.0：默认先测当前静息，再等待稳定动作；兼容已有二分类模型和门控文件。
++实时修订版 1.2.0：用当前静息与两个短动作参考设置活动门控，显示逐窗候选与阻塞原因。
++参考动作只用于活动门控，不重训SVM；结果标注按钮仍只用于评估。
+ 旧三分类模型不可用于本脚本。--live-profile replay --activity-mode legacy 可复现原离线规则。
+ """
+ from __future__ import annotations
+@@ -424,6 +425,7 @@
+                 frame = {"start_row": end - self.width, "stop_row": end, "decision_row": end - 1,
+                          "segment_id": self.segment_id, "qc_status": qc, "qc_reasons": ";".join(reasons),
+                          "usable": bool(usable)}
++                frame.update({"raw_p2p_ch%d" % (k+1): float(np.ptp(rw[:, k])) for k in range(4)})
+                 feature = extract_features(fw, self.config["zc_threshold_uv"], self.config["ssc_threshold_uv"])
+                 frames.append(frame); features.append(feature)
+                 self.next_end += self.hop
+@@ -561,7 +563,8 @@
+             return "waiting_for_release", None
+         if self.emitted:
+             return "active_latched", None
+-        if self.params.get("restart_settle_after_activity_drop", False) and activity < self.params["on_threshold"]:
++        hold_threshold = float(self.params.get("candidate_hold_threshold", self.params["on_threshold"]))
++        if self.params.get("restart_settle_after_activity_drop", False) and activity < hold_threshold:
+             # 尚未输出时，动作候选必须连续；低活动后重新确认起点及稳定等待。
+             # 已输出事件仍只由真正连续低于OFF的窗口释放，不按时间强制解锁。
+             self.active, self.on_count, self.onset_candidate_row = False, 0, None
+@@ -583,7 +586,7 @@
+             self.active = True
+         else:
+             # 释放滞回只用于保持事件锁定；它不能授权在低活动时发出新事件。
+-            if activity < self.params["on_threshold"]:
++            if activity < hold_threshold:
+                 self.history.clear()
+                 return "activity_below_on_waiting", None
+             if row - self.onset_candidate_row < settle_samples:
+@@ -591,7 +594,8 @@
+                 return "settling", None
+             self.history.append((int(predicted), np.asarray(decision_scores, dtype=float)))
+         if activity < self.params["on_threshold"]:
+-            self.history.clear()
++            if "candidate_hold_threshold" not in self.params:
++                self.history.clear()
+             return "activity_below_on_waiting", None
+         if row - self.onset_candidate_row < settle_samples:
+             self.history.clear()
+@@ -754,7 +758,7 @@
+ import queue
+ import threading
+ 
+-LIVE_VERSION = "1.1.0-rp-stable"
++LIVE_VERSION = "1.2.0-rp-guided"
+ LIVE_SCHEMA = "openbci_rp_binary_4ch_svm_live_v1"
+ STATE_NAMES = {
+     "waiting_for_release": "请先放松手臂", "released": "已放松，等待动作",
+@@ -767,7 +771,27 @@
+     "resyncing": "正在重新订阅LSL，等待新数据",
+     "rest_calibrating": "正在测量静息，请保持手臂放松；暂不识别",
+     "rest_calibration_failed": "静息测量未通过，请放松后点击“重新测静息”",
++    "activity_reference": "请按下方提示设置当前活动参考",
+ }
++
++
++def explain_blocking_reason(snapshot):
++    state = snapshot.get("state", "connecting")
++    if state in {"stale", "no_data", "resyncing", "connecting", "warmup", "stopped", "error"}:
++        return STATE_NAMES.get(state, state)
++    if snapshot.get("qc") == "REVIEW" or state == "quality_lock":
++        return "输入质量检查未通过："+(snapshot.get("qc_reasons") or "检查四路输入、单位和时间戳")
++    gate = snapshot.get("activity_gate") or {}
++    if gate.get("mode") == "guided" and gate.get("state") != "ready":
++        return gate.get("error") or gate.get("instruction", "等待当前参考测量")
++    if state in {"rest_calibrating", "rest_calibration_failed"}:
++        return gate.get("error") or STATE_NAMES[state]
++    if state in {"triggered", "active_latched"}: return "本次已有输出；需放松至释放条件后再做下一次"
++    if state == "waiting_for_release": return "尚未确认放松：%d/%d窗" % (snapshot.get("release_progress", 0), snapshot.get("release_required", 0))
++    if state == "released": return "已放松，可以做动作"
++    if state in {"quiet_or_candidate", "activity_below_on_waiting"}: return "活动尚未满足启动条件；查看各通道RMS与当前活动参考"
++    if state == "unstable": return "活动已达到条件，但SVM候选类别仍在变化"
++    return STATE_NAMES.get(state, state)
+ 
+ 
+ def activity_indicator(activity, params, state=None):
+@@ -958,8 +982,9 @@
+ 
+ 
+ def live_gate_options(args):
+-    return {"mode": getattr(args, "activity_mode", "robust"),
++    return {"mode": getattr(args, "activity_mode", "guided"),
+         "rest_seconds": float(getattr(args, "rest_seconds", 8.)),
++        "reference_seconds": float(getattr(args, "reference_seconds", 3.)),
+         "minimum_active_channels": int(getattr(args, "min_active_channels", 2)),
+         "on_z": float(getattr(args, "activity_on_z", 6.)),
+         "off_z": float(getattr(args, "activity_off_z", 3.))}
+@@ -993,11 +1018,19 @@
+             "runtime_activity_reference": "live_user_instructed_rest",
+             "source_gate_activity_thresholds_used": False,
+             "source_noise_reference_usage": "legacy_comparison_score_only"})
++    elif options["mode"] == "guided":
++        result.update({"on_threshold": .5, "off_threshold": .15, "candidate_hold_threshold": .15,
++            "activity_score": "reference_selected_channel_rms_excess_above_current_rest",
++            "runtime_activity_reference": "current_rest_and_short_user_cued_actions",
++            "source_gate_activity_thresholds_used": False,
++            "source_noise_reference_usage": "legacy_comparison_score_only",
++            "gate_reference_labels_used_for_classifier_fit": False})
+     return result
+ 
+ 
+ class RestActivityGate:
+     """只观察当前/过去RMS；无类别或按钮标签输入，不拟合分类器，不自动更新已接受的静息参考。"""
++    mode = "robust"
+     def __init__(self, fs, width, seconds=8., minimum_channels=2, on_z=6., off_z=3.):
+         require(np.isfinite([fs, seconds, on_z, off_z]).all() and fs > 0 and seconds > 0,
+                 "静息门控时间参数无效。")
+@@ -1095,6 +1128,176 @@
+             "classifier_updated": False}
+ 
+ 
++class GuidedActivityGate:
++    """Current rest plus two explicitly cued amplitude references; never fits or labels the SVM.
++
++    Quality-valid rest windows may survive an isolated interruption. A channel that
++    varies at rest is not by itself a reason to veto every other channel. Each
++    reference must demonstrate separation from rest before its channels are used.
++    """
++    mode = "guided"
++
++    def __init__(self, fs, width, hop, seconds=8., reference_seconds=3.):
++        require(fs > 0 and width > 0 and hop > 0 and seconds >= 2 and reference_seconds >= 2,
++                "参考测量参数无效。")
++        self.fs, self.width, self.hop = float(fs), int(width), int(hop)
++        self.seconds, self.reference_seconds = float(seconds), float(reference_seconds)
++        self.on_z, self.off_z, self.minimum_channels = .5, .15, 1
++        self.revision, self.change_token, self.history = 0, 0, []
++        self.profile, self.references, self.error = None, {}, ""
++        self.last_reference_id, self.last_score, self.last_ratios = None, None, None
++        self.begin("startup", 0)
++
++    def _start(self, phase, row, reason):
++        if getattr(self, "state", "").startswith("collecting") and getattr(self, "samples", []):
++            self.history.append({"revision": self.revision, "status": "aborted", "phase": self.state,
++                                 "reason": reason, "valid_windows": len(self.samples)})
++        self.revision += 1
++        self.state, self.reason, self.request_row = phase, reason, int(row)
++        self.samples, self.rows, self.invalid_windows, self.partial_resets = [], [], 0, 0
++        self.prediction_samples, self.latest_prediction = [], -1
++        self.first_row, self.last_row, self.error = None, None, ""
++        self.last_reference_id, self.last_score, self.last_ratios = None, None, None
++        self.change_token += 1
++
++    def begin(self, reason, row):
++        self.profile, self.references = None, {}
++        self.reference_id = None
++        self._start("collecting_rest", row, reason)
++
++    def begin_action(self, class_id, row):
++        require(class_id in (0, 1) and self.profile is not None, "请先完成静息参考，再采集动作参考。")
++        require(not self.state.startswith("collecting"), "当前参考尚在采集中。")
++        self.references.pop(class_id, None)
++        self.reference_id = int(class_id)
++        self._start("collecting_action", row, "user_cued_action_reference")
++
++    def reset_partial(self):
++        # Keep already valid rest windows across isolated bad windows, rather than
++        # silently starting the entire eight seconds over after every interruption.
++        if self.state.startswith("collecting"):
++            self.partial_resets += 1
++
++    def elapsed(self):
++        if not self.samples: return 0.
++        return min(self.required_seconds(), (self.width+(len(self.samples)-1)*self.hop)/self.fs)
++
++    def required_seconds(self):
++        return self.seconds if self.state == "collecting_rest" else self.reference_seconds
++
++    def _finish_rest(self):
++        x = np.asarray(self.samples)
++        median = np.median(x, axis=0)
++        mad = np.median(np.abs(x-median), axis=0)
++        scale = np.maximum.reduce([1.4826*mad, .10*median, np.full(4, .01)])
++        upper = np.maximum(np.quantile(x, .95, axis=0), median+3*scale)
++        half = len(x)//2
++        a, b = np.median(x[:half], axis=0), np.median(x[half:], axis=0)
++        drift = np.maximum(a, b)/np.maximum(np.minimum(a, b), 1e-6)
++        warning = np.flatnonzero(drift > 1.5)
++        self.profile = {"median_rms_uv": median.tolist(), "mad_rms_uv": mad.tolist(),
++            "robust_scale_uv": scale.tolist(), "rest_upper_rms_uv": upper.tolist(),
++            "variable_rest_channels_one_based": (warning+1).tolist(),
++            "valid_windows": len(x), "invalid_windows": self.invalid_windows,
++            "partial_interruptions": self.partial_resets, "half_median_ratio": drift.tolist()}
++        self.history.append({"revision": self.revision, "phase": "rest", "status": "accepted", **self.profile})
++        self.state, self.samples, self.rows = "need_actions", [], []
++        self.change_token += 1
++
++    def _finish_action(self):
++        x = np.asarray(self.samples)
++        # Holding before pressing is permitted. Discard the first 0.5 seconds
++        # so that a cue-to-contraction transition is not fitted when present.
++        keep = np.asarray(self.rows) >= self.rows[0]+int(round(.5*self.fs))
++        stable = x[keep]
++        require(len(stable) >= 8, "动作参考有效窗口不足。")
++        q25, median = np.quantile(stable, .25, axis=0), np.median(stable, axis=0)
++        rest = np.asarray(self.profile["median_rms_uv"])
++        upper = np.asarray(self.profile["rest_upper_rms_uv"])
++        scale = np.asarray(self.profile["robust_scale_uv"])
++        delta = q25-upper
++        good = (delta > np.maximum(.10*rest, .01)) & (median > 1.15*upper)
++        candidates = np.flatnonzero(good)
++        channels = sorted(candidates, key=lambda k: delta[k]/scale[k], reverse=True)[:2]
++        predictions = np.asarray(self.prediction_samples)[keep]
++        available = predictions >= 0
++        match = float(np.mean(predictions[available] == self.reference_id)) if available.any() else None
++        attempt = {"revision": self.revision, "phase": "action", "cue_class_id": self.reference_id,
++            "status": "accepted" if channels else "rejected", "valid_windows": len(stable),
++            "action_q25_rms_uv": q25.tolist(), "action_median_rms_uv": median.tolist(),
++            "excess_above_rest_uv": delta.tolist(), "selected_channels_one_based": [int(k)+1 for k in channels],
++            "frozen_svm_reference_match_not_independent_accuracy": match,
++            "frozen_svm_candidate_counts": {str(k):int(np.sum(predictions == k)) for k in [0,1]}}
++        self.history.append(attempt)
++        if channels:
++            self.references[self.reference_id] = dict(attempt, channels=[int(k) for k in channels])
++            self.error = ""
++        else:
++            self.error = "该动作参考未明显高于静息：请保持自然用力重测，或查看四通道RMS与逐窗候选。"
++        self.state = "ready" if set(self.references) == {0, 1} else "need_actions"
++        self.samples, self.rows = [], []
++        self.change_token += 1
++
++    def observe(self, rms, row, usable):
++        rms = np.asarray(rms, dtype=float)
++        valid = bool(usable and rms.shape == (4,) and np.isfinite(rms).all() and (rms >= 0).all())
++        if self.state.startswith("collecting"):
++            self.first_row = int(row) if self.first_row is None else self.first_row
++            self.last_row = int(row)
++            required = self.required_seconds()
++            span = (self.last_row-self.first_row+self.width)/self.fs
++            if span > max(2*required, required+5.) and self.elapsed() < required:
++                self.state = "failed"
++                self.error = "有效数据不足，参考测量已暂停；查看QC原因、时间戳和输入单位，再重新测静息。"
++                self.change_token += 1
++                return None, None
++            if not valid:
++                self.invalid_windows += 1
++                return None, None
++            self.samples.append(rms.copy()); self.rows.append(int(row)); self.prediction_samples.append(self.latest_prediction)
++            if self.elapsed()+1e-9 >= required:
++                if self.state == "collecting_rest": self._finish_rest()
++                else: self._finish_action()
++        if self.state != "ready" or not valid: return None, None
++        upper = np.asarray(self.profile["rest_upper_rms_uv"])
++        best, best_id, best_z = -1., None, None
++        for label, reference in self.references.items():
++            channels = reference["channels"]
++            delta = np.asarray(reference["excess_above_rest_uv"])
++            ratios = np.zeros(4)
++            ratios[channels] = np.maximum(0., (rms[channels]-upper[channels])/delta[channels])
++            score = float(np.min(ratios[channels]))
++            if score > best: best, best_id, best_z = score, label, ratios
++        self.last_reference_id, self.last_score, self.last_ratios = best_id, best, best_z
++        self.minimum_channels = len(self.references[best_id]["channels"])
++        return best, best_z
++
++    def snapshot(self):
++        if self.state == "collecting_rest": instruction = "自然放松，正在测量当前静息"
++        elif self.state == "collecting_action": instruction = "请现在保持%s，正在采集动作幅值参考" % ("石头" if self.reference_id == 0 else "布")
++        elif self.state == "need_actions":
++            missing = ["石头" if k == 0 else "布" for k in (0, 1) if k not in self.references]
++            instruction = "静息已记录；请依次点击“测%s”并保持对应动作" % "、测".join(missing)
++        elif self.state == "ready": instruction = "活动参考已设置；先放松，确认释放后再做动作"
++        else: instruction = self.error
++        return {"mode": self.mode, "state": self.state, "revision": self.revision,
++            "elapsed_seconds": self.elapsed(), "required_seconds": self.required_seconds(),
++            "instruction": instruction, "error": self.error,
++            "rest_ready": self.profile is not None, "reference_id": self.reference_id,
++            "reference_channels": {str(k): v["selected_channels_one_based"] for k, v in self.references.items()},
++            "reference_classifier_match": {str(k):v["frozen_svm_reference_match_not_independent_accuracy"] for k,v in self.references.items()},
++            "matched_reference_id": self.last_reference_id, "minimum_active_channels": self.minimum_channels,
++            "on_threshold": self.on_z, "off_threshold": self.off_z,
++            "invalid_windows": self.invalid_windows, "partial_interruptions": self.partial_resets}
++
++    def report(self):
++        return {"schema": "openbci_rp_binary_guided_activity_v1", "status": self.snapshot(),
++            "rest_profile": self.profile, "action_references": self.references, "history": self.history,
++            "reference_labels_used_for": "activity_gate_only_not_classifier_or_evaluation_truth",
++            "classifier_updated": False, "references_updated_during_recognition": False,
++            "settings_require_new_independent_real_time_validation": True}
++
++
+ class LiveEngine:
+     """保持原窗口、特征、SVM与投票；可显式替换活动评分，不接收动作Marker或按钮标签。"""
+     def __init__(self, bundle, params, names=None, max_data_age=None, activity_gate=None):
+@@ -1106,6 +1309,7 @@
+         self.max_data_age = max_data_age
+         self.activity_gate = activity_gate
+         self.last_state, self.last_activity, self.last_qc = "warmup", None, None
++        self.last_qc_reasons, self.last_candidate, self.last_raw_p2p = "", None, None
+ 
+     def interrupt(self, reason, row=None):
+         row = max(0, self.stream.position - 1) if row is None else int(row)
+@@ -1114,11 +1318,19 @@
+         self.stream.valid = False
+         if self.activity_gate is not None: self.activity_gate.reset_partial()
+         self.last_state, self.last_activity = reason, None
++        self.last_qc, self.last_qc_reasons, self.last_candidate = None, reason, None
+ 
+     def recalibrate_rest(self):
+-        require(self.activity_gate is not None, "请用 --activity-mode robust 启用静息测量。")
++        require(self.activity_gate is not None, "请启用guided或robust活动参考。")
+         self.interrupt("rest_calibrating")
+         self.activity_gate.begin("manual_button", self.stream.position)
++
++    def capture_reference(self, class_id):
++        require(isinstance(self.activity_gate, GuidedActivityGate), "动作参考仅适用于guided模式。")
++        self.detector.close(max(0, self.stream.position-1), "manual_activity_reference")
++        self.detector.reset_state()
++        self.activity_gate.begin_action(class_id, self.stream.position)
++        self.last_state, self.last_activity = "activity_reference", None
+ 
+     def process(self, values, stamps, flags=None, emission_clock=None):
+         values, stamps = np.asarray(values, dtype=float), np.asarray(stamps, dtype=float)
+@@ -1149,12 +1361,17 @@
+                 timely = self.max_data_age is None or (-.25 <= now-stamp <= self.max_data_age)
+                 activity, z = float(activities[i]), None
+                 if self.activity_gate is not None:
++                    if isinstance(self.activity_gate, GuidedActivityGate):
++                        self.activity_gate.latest_prediction = int(predicted[i])
+                     activity, z = self.activity_gate.observe(features[i, [1, 6, 11, 16]], frame["decision_row"],
+                         frame["usable"] and timely)
+                 if self.activity_gate is not None and self.activity_gate.state != "ready":
+                     self.detector.close(frame["decision_row"], "rest_calibration")
+                     self.detector.reset_state()
+-                    state, event = ("rest_calibration_failed" if self.activity_gate.state == "failed" else "rest_calibrating"), None
++                    if isinstance(self.activity_gate, GuidedActivityGate):
++                        state, event = "activity_reference", None
++                    else:
++                        state, event = ("rest_calibration_failed" if self.activity_gate.state == "failed" else "rest_calibrating"), None
+                     if not frame["usable"]: state = "quality_lock"
+                 else:
+                     state, event = self.detector.step(frame["decision_row"], frame["segment_id"],
+@@ -1165,7 +1382,7 @@
+                         "decision_lsl_time_s": stamp, "emitted_local_clock_s": now,
+                         "data_age_at_emission_s": now - stamp, "wall_time": datetime.now().isoformat(timespec="milliseconds")})
+                     if self.activity_gate is not None:
+-                        event.update({"activity_mode": "robust", "rest_calibration_revision": self.activity_gate.revision,
++                        event.update({"activity_mode": self.activity_gate.mode, "rest_calibration_revision": self.activity_gate.revision,
+                             "minimum_active_channels": self.activity_gate.minimum_channels})
+                 record = dict(frame)
+                 record.update({"decision_lsl_time_s": stamp, "processed_local_clock_s": now,
+@@ -1183,13 +1400,16 @@
+                 record.update({"decision_%d" % k: scores[i, k] for k in range(2)})
+                 record.update(dict(zip(FEATURE_NAMES, features[i])))
+                 if self.activity_gate is not None:
+-                    record.update({"activity_mode": "robust", "legacy_activity_score": float(activities[i]),
++                    record.update({"activity_mode": self.activity_gate.mode, "legacy_activity_score": float(activities[i]),
+                         "rest_calibration_revision": self.activity_gate.revision, "rest_calibration_state": self.activity_gate.state,
+                         "channels_above_on": None if z is None else int(np.sum(z >= self.activity_gate.on_z)),
+                         "channels_above_off": None if z is None else int(np.sum(z > self.activity_gate.off_z))})
+                     record.update({"activity_z_ch%d" % (k+1): None if z is None else float(z[k]) for k in range(4)})
+                 result.append(record)
+                 self.last_state, self.last_activity, self.last_qc = state, activity, frame["qc_status"]
++                self.last_qc_reasons = frame["qc_reasons"]
++                self.last_candidate = int(predicted[i]) if predicted[i] >= 0 else None
++                self.last_raw_p2p = [frame.get("raw_p2p_ch%d" % k) for k in range(1, 5)]
+         return result
+ 
+     def snapshot(self):
+@@ -1197,10 +1417,15 @@
+         result = {"state": self.last_state, "activity": self.last_activity, "qc": self.last_qc,
+             "gesture": event["class_name"] if event else "—", "event_count": len(self.detector.events),
+             "samples": self.stream.position,
++            "qc_reasons": self.last_qc_reasons,
++            "candidate_class_id": self.last_candidate,
++            "candidate_gesture": self.names[self.last_candidate] if self.last_candidate is not None else "—",
++            "raw_p2p_uv": self.last_raw_p2p,
+             "release_progress": min(self.detector.off_count, self.params["release_windows"]),
+             "release_required": self.params["release_windows"],
+             "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"]}
+         if self.activity_gate is not None: result["activity_gate"] = self.activity_gate.snapshot()
++        result["blocking_reason"] = explain_blocking_reason(result)
+         return result
+ 
+ 
+@@ -1421,7 +1646,8 @@
+             "activity_score", "detector_state", "output_suppressed_for_data_age", "trigger_event_id"] + FEATURE_NAMES +
+             ["activity_mode", "legacy_activity_score", "rest_calibration_revision", "rest_calibration_state",
+              "channels_above_on", "channels_above_off", "live_profile", "release_progress", "release_required",
+-             "vote_progress", "vote_required", "onset_candidate_row", "settle_elapsed_s"] + ["activity_z_ch%d" % k for k in range(1, 5)])
++             "vote_progress", "vote_required", "onset_candidate_row", "settle_elapsed_s"] +
++            ["raw_p2p_ch%d" % k for k in range(1, 5)] + ["activity_z_ch%d" % k for k in range(1, 5)])
+         self.open_csv("transport_issues.csv", ["received_row", "reason", "timestamp_dt_s", "wall_time"])
+         self.open_csv("transport_health.csv", ["wall_time", "received_samples", "local_clock_s",
+             "last_sample_lsl_time_s", "lsl_age_s", "receive_rate_hz_5s", "inlet_queued_samples", "stream_uid"])
+@@ -1500,7 +1726,7 @@
+ 
+ 
+ def select_stream(streams, name, expected_fs, channels, stream_type=None, source_id=None, counter_channel=None):
+-    matched = [s for s in streams if s.name() == name and (not stream_type or s.type() == stream_type)
++    matched = [s for s in streams if s.name() == name and (not stream_type or s.type().strip() == stream_type.strip())
+                and (not source_id or s.source_id() == source_id)]
+     require(len(matched) == 1, "需要恰好一个名称为%s的LSL流，实际%d个。先运行 --list-streams；重名时指定 --source-id。" % (name, len(matched)))
+     selected = matched[0]
+@@ -1521,6 +1747,11 @@
+     gate = (RestActivityGate(float(bundle["preprocess_config"]["fs"]), bundle["preprocess_config"]["window_samples"],
+         options["rest_seconds"], options["minimum_active_channels"], options["on_z"], options["off_z"])
+         if options["mode"] == "robust" else None)
++    if options["mode"] == "guided":
++        cfg = bundle["preprocess_config"]
++        gate = GuidedActivityGate(cfg["fs"], cfg["window_samples"], cfg["hop_samples"],
++            options["rest_seconds"], options["reference_seconds"])
++    gate_file = "activity_calibration.json" if options["mode"] == "guided" else "rest_calibration.json"
+     engine, journal, inlet = LiveEngine(bundle, effective_params, names, args.max_data_age, activity_gate=gate), None, None
+     health, last_rms, receive_rate = ReceiveHealth(), None, None
+     fs = float(bundle["preprocess_config"]["fs"])
+@@ -1555,6 +1786,7 @@
+             "input_detector_file_modified": False,
+             "activity_reference_update_policy": "explicit_rest_measurement_then_frozen" if gate is not None else "input_file_frozen",
+             "classifier_updated_during_session": False, "gesture_markers_used_for_inference": False,
++            "reference_action_labels_used_for_activity_gate": options["mode"] == "guided",
+             "accuracy_available_without_external_ground_truth": False,
+             "posthoc_label_buttons_enabled": labels is not None,
+             "manual_labels_used_for_inference": False, "detector_reset_on_label": False,
+@@ -1565,7 +1797,7 @@
+         journal = LiveLog(output, local_config, snapshots=snapshots)
+         journal.events([])
+         if gate is not None:
+-            snapshots.json("rest_calibration.json", gate.report())
++            snapshots.json(gate_file, gate.report())
+             saved_gate_token = gate.change_token
+         if labels is not None: labels.save(output, force=True)
+         dropped, flush_supported = flush_live_inlet(inlet)
+@@ -1581,7 +1813,10 @@
+         log("实时确认=%s：等待%.2f秒，%d窗至少%d票，连续%d窗放松后释放。" %
+             (effective_params["live_profile"], effective_params["settle_seconds"],
+              effective_params["vote_windows"], effective_params["minimum_votes"], effective_params["release_windows"]), output)
+-        if gate is not None:
++        if isinstance(gate, GuidedActivityGate):
++            log("活动参考：先自然放松%.1f秒，再点击“测石头”“测布”各保持%.1f秒；这只设置活动门控，不训练SVM。" %
++                (gate.seconds, gate.reference_seconds), output)
++        elif gate is not None:
+             log("稳健活动门控：预热后测%.1f秒静息，至少%d路增强才启动；测量期间不输出，完成后参考冻结。" %
+                 (gate.seconds, gate.minimum_channels), output)
+         if args.counter_channel is None:
+@@ -1623,11 +1858,25 @@
+             if "recalibrate_rest" in requested_commands and gate is not None:
+                 engine.recalibrate_rest()
+                 journal.events(engine.detector.events, force=True)
+-                snapshots.json("rest_calibration.json", gate.report())
++                snapshots.json(gate_file, gate.report())
+                 saved_gate_token = gate.change_token
+                 journal.issue(engine.stream.position, "user_requested_rest_calibration_revision_%d" % gate.revision)
+                 publish({**engine.snapshot(), "rms_uv": None})
+                 log("已开始重新测静息：请持续放松%.1f秒；旧事件已结束，已有人工标注保留。" % gate.seconds, output)
++            if isinstance(gate, GuidedActivityGate):
++                for class_id, command in [(0, "reference_stone"), (1, "reference_paper")]:
++                    if command not in requested_commands: continue
++                    try:
++                        engine.capture_reference(class_id)
++                    except ValueError as exc:
++                        log("动作参考尚未开始：%s" % exc, output)
++                    else:
++                        journal.events(engine.detector.events, force=True)
++                        snapshots.json(gate_file, gate.report())
++                        saved_gate_token = gate.change_token
++                        log("请现在保持%s约%.1f秒；参考期间不输出识别事件。" % (names[class_id], gate.reference_seconds), output)
++                        publish({**engine.snapshot(), "rms_uv": last_rms})
++                    break
+             samples, stamps = inlet.pull_chunk(timeout=.1, max_samples=max(25, int(fs // 5)))
+             tick = time.monotonic()
+             if not stamps:
+@@ -1659,9 +1908,15 @@
+             clean = raw.copy(); clean[invalid | stale] = np.nan
+             records = engine.process(clean, timestamps, flags, lsl.local_clock)
+             if gate is not None and saved_gate_token != gate.change_token:
+-                snapshots.json("rest_calibration.json", gate.report())
++                snapshots.json(gate_file, gate.report())
+                 saved_gate_token = gate.change_token
+-                if gate.state == "ready":
++                if isinstance(gate, GuidedActivityGate):
++                    status = gate.snapshot()
++                    log("活动参考：%s。%s" % (status["instruction"], status["error"]), output)
++                    if gate.state == "ready":
++                        log("有效通道：%s；启动/释放分数为0.50/0.15。先放松确认，再开始识别。" %
++                            status["reference_channels"], output)
++                elif gate.state == "ready":
+                     log("静息测量完成，参考已冻结；各路释放/启动门限(μV)：%s。仍需观察到持续放松后才允许输出。" %
+                         "；".join("CH%d %.2f/%.2f" % (k+1, gate.profile["off_rms_uv"][k], gate.profile["on_rms_uv"][k])
+                             for k in range(4)), output)
+@@ -1719,7 +1974,7 @@
+             summary["activity_mode"] = options["mode"]
+             summary["live_profile"] = effective_params["live_profile"]
+             if gate is not None:
+-                snapshots.json("rest_calibration.json", gate.report())
++                snapshots.json(gate_file, gate.report())
+                 summary["rest_calibration_status"] = gate.snapshot()
+             if journal:
+                 try: journal.events(engine.detector.events, force=True); journal.flush(True)
+@@ -1752,6 +2007,29 @@
+             stop.set()
+ 
+ 
++def make_live_layout(root, tk, ttk):
++    """Keep acquisition/reference controls visible even on a short desktop."""
++    width = min(940, max(760, root.winfo_screenwidth()-100))
++    height = min(850, max(480, root.winfo_screenheight()-120))
++    root.geometry("%dx%d" % (width, height))
++    root.minsize(min(780, width), min(580, height))
++    footer = ttk.Frame(root, padding=(10, 5))
++    footer.pack(side="bottom", fill="x")
++    outer = ttk.Frame(root)
++    outer.pack(fill="both", expand=True)
++    canvas = tk.Canvas(outer, highlightthickness=0, background="#f2f5fa")
++    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
++    scrollbar.pack(side="right", fill="y")
++    canvas.configure(yscrollcommand=scrollbar.set)
++    canvas.pack(side="left", fill="both", expand=True)
++    body = ttk.Frame(canvas, padding=14)
++    item = canvas.create_window((0, 0), window=body, anchor="nw")
++    body.bind("<Configure>", lambda event:canvas.configure(scrollregion=canvas.bbox("all")))
++    canvas.bind("<Configure>", lambda event:canvas.itemconfigure(item, width=event.width))
++    root.bind_all("<MouseWheel>", lambda event:canvas.yview_scroll(int(-event.delta/120), "units"), add="+")
++    return body, footer
++
++
+ def show_window(args, bundle, params, output, stop, updates, shared, worker):
+     try:
+         import tkinter as tk
+@@ -1768,9 +2046,8 @@
+     options = live_gate_options(args)
+     display_params = runtime_detector_params(params, args)
+     root.title("OpenBCI 实时识别 · %s" % LIVE_VERSION)
+-    root.geometry("940x850"); root.minsize(850, 780)
+     root.configure(bg="#f2f5fa")
+-    body = ttk.Frame(root, padding=14); body.pack(fill="both", expand=True)
++    body, footer = make_live_layout(root, tk, ttk)
+     ttk.Label(body, text="四通道 sEMG · 实时识别与动作标注", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+     ttk.Label(body, text="%s  |  分类模型校准日期 %s  |  %s Hz  |  程序 %s" %
+         (bundle["subject_id"], bundle["calibration_date"], bundle["preprocess_config"]["fs"], LIVE_VERSION)).pack(anchor="w", pady=(5, 8))
+@@ -1779,7 +2056,10 @@
+     ttk.Label(body, textvariable=gesture, font=("Microsoft YaHei UI", 30, "bold"), foreground="#164ab6").pack(pady=4)
+     ttk.Label(body, textvariable=state, font=("Microsoft YaHei UI", 13)).pack()
+     ttk.Label(body, textvariable=detail, wraplength=840).pack(pady=5)
+-    caption = ("稳健活动分数 · 至少%d/4路持续增强才启动（50%%位置为启动门限；不是识别概率）" %
++    candidate_text = tk.StringVar(value="诊断候选：等待有效数据；只有活动条件满足才输出识别结果")
++    ttk.Label(body, textvariable=candidate_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=2)
++    caption = ("当前动作参考活动分数 · 通道由静息/动作响应选定（不是分类概率）" if options["mode"] == "guided" else
++        "稳健活动分数 · 至少%d/4路持续增强才启动（50%%位置为启动门限；不是识别概率）" %
+         options["minimum_active_channels"] if options["mode"] == "robust" else
+         "肌电活动条 · 相对校准噪声的分数（不是识别概率；50%位置为启动门限）")
+     ttk.Label(body, text=caption, foreground="#56647a", wraplength=840).pack(anchor="w")
+@@ -1787,7 +2067,7 @@
+     progress.pack(fill="x", pady=6)
+     activity_text = tk.StringVar(value="等待有效活动数据")
+     rms_text = tk.StringVar(value="分类窗口四通道RMS：—")
+-    gate_text = tk.StringVar(value="启动后请持续放松，等待静息测量完成" if options["mode"] == "robust" else "使用离线校准的活动参考")
++    gate_text = tk.StringVar(value="启动后请持续放松，等待静息测量完成" if options["mode"] in {"guided", "robust"} else "使用离线校准的活动参考")
+     ttk.Label(body, textvariable=activity_text, wraplength=840).pack(anchor="w")
+     ttk.Label(body, textvariable=rms_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=(2, 4))
+     ttk.Label(body, textvariable=gate_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=(0, 4))
+@@ -1855,7 +2135,6 @@
+     ttk.Label(body, text="输出目录：" + str(output), wraplength=760, foreground="#56647a").pack(anchor="w", pady=3)
+     storage_notice = tk.StringVar(value="")
+     ttk.Label(body, textvariable=storage_notice, wraplength=760, foreground="#ad5c00").pack(anchor="w", pady=2)
+-    footer = ttk.Frame(body); footer.pack(fill="x", side="bottom", pady=5)
+     def request_resubscribe():
+         if not stop.is_set() and controls.empty():
+             controls.put_nowait("resubscribe")
+@@ -1864,13 +2143,24 @@
+     resubscribe_button = ttk.Button(footer, text="重新同步LSL（板卡保持连接）", command=request_resubscribe)
+     resubscribe_button.pack(side="left")
+     def request_rest_calibration():
+-        if options["mode"] == "robust" and not stop.is_set():
++        if options["mode"] in {"guided", "robust"} and not stop.is_set():
+             controls.put_nowait("recalibrate_rest")
+             rest_button.configure(state="disabled")
+             state.set("已请求重新测静息；请保持手臂放松")
+     rest_button = ttk.Button(footer, text="重新测静息（请先放松）", command=request_rest_calibration,
+-        state="normal" if options["mode"] == "robust" else "disabled")
++        state="normal" if options["mode"] in {"guided", "robust"} else "disabled")
+     rest_button.pack(side="left", padx=6)
++    reference_buttons = []
++    def request_reference(class_id):
++        if options["mode"] == "guided" and not stop.is_set() and controls.empty():
++            controls.put_nowait("reference_stone" if class_id == 0 else "reference_paper")
++            for button in reference_buttons: button.configure(state="disabled")
++            state.set("请现在保持%s，正在请求动作参考测量" % names[class_id])
++    for k in range(2):
++        button = ttk.Button(footer, text="测%s（%.0f秒）" % (names[k], options["reference_seconds"]),
++            command=lambda k=k:request_reference(k), state="disabled")
++        if options["mode"] == "guided": button.pack(side="left", padx=3)
++        reference_buttons.append(button)
+     stop_button = ttk.Button(footer, text="停止接收并保存", command=stop.set)
+     stop_button.pack(side="right")
+     root.protocol("WM_DELETE_WINDOW", stop.set)
+@@ -1885,7 +2175,8 @@
+         else: pending_text.set("暂无待标注事件。做完一次手势、出现输出后，再点实际动作。")
+         enabled = bool(pending) and time.monotonic()-last_click[0] >= .4
+         for button in label_buttons: button.configure(state="normal" if enabled else "disabled")
+-        miss_button.configure(state="disabled" if pending else "normal")
++        setting_reference = options["mode"] == "guided" and (last_snapshot.get("activity_gate") or {}).get("state") != "ready"
++        miss_button.configure(state="disabled" if pending or setting_reference else "normal")
+         summary = labels.report()["summary"]
+         value = summary["record_based_accuracy"]
+         accuracy.set("已标注动作正确率：%s" % ("—" if value is None else "%.2f%%（%d/%d）" %
+@@ -1911,13 +2202,30 @@
+             state.set("接收画面已过时，等待新数据；可尝试重新同步LSL" if display_stale and not stop.is_set() else
+                 STATE_NAMES.get(status, current.get("message", status)))
+             gesture.set("—" if display_stale else current.get("gesture", "—"))
++            candidate_text.set("诊断候选：—；接收数据已过时" if display_stale else
++                "诊断候选：%s ｜ %s" % (current.get("candidate_gesture", "—"),
++                    current.get("blocking_reason", STATE_NAMES.get(status, status))))
+             indicator = activity_indicator(None if display_stale else current.get("activity"), display_params, status)
+             progress["maximum"] = indicator["maximum"]
+             progress["value"] = indicator["value"]
+             activity_text.set(indicator["text"])
+             gate_status = current.get("activity_gate")
+             if gate_status is not None and not display_stale:
+-                if gate_status["state"] == "collecting":
++                if gate_status.get("mode") == "guided":
++                    phase = gate_status["state"]
++                    if phase.startswith("collecting"):
++                        activity_text.set("%s：%.1f / %.1f 秒" % (gate_status["instruction"],
++                            gate_status["elapsed_seconds"], gate_status["required_seconds"]))
++                    elif phase == "need_actions": activity_text.set("静息已记录；请采集两个短动作参考")
++                    elif phase == "failed": activity_text.set("参考测量暂停：请查看下方具体原因")
++                    channels = gate_status.get("reference_channels", {})
++                    selected = " | ".join("%s CH%s" % (names[int(k)], "/".join(str(c) for c in values))
++                        for k, values in sorted(channels.items()))
++                    gate_text.set((gate_status.get("error") or gate_status["instruction"])+("；有效通道："+selected if selected else ""))
++                    matches = gate_status.get("reference_classifier_match", {})
++                    poor = [names[int(k)] for k,v in matches.items() if v is not None and v < .7]
++                    if poor: gate_text.set(gate_text.get()+"；旧分类器对%s参考的候选不一致，需核查当天分类适配" % "/".join(poor))
++                elif gate_status["state"] == "collecting":
+                     activity_text.set("静息测量 %.1f / %.1f 秒：保持放松，暂不输出手势" %
+                         (gate_status["elapsed_seconds"], gate_status["required_seconds"]))
+                     gate_text.set("前臂保持支撑，手自然放松；测量结束后仍需观察到持续放松")
+@@ -1944,8 +2252,12 @@
+                         (current["release_progress"], current["release_required"], current["vote_progress"], current["vote_required"]))
+             resubscribe_button.configure(state="disabled" if stop.is_set() or not controls.empty() or
+                 status in {"connecting", "resyncing"} else "normal")
+-            rest_button.configure(state="disabled" if options["mode"] != "robust" or stop.is_set() or
++            rest_button.configure(state="disabled" if options["mode"] not in {"guided", "robust"} or stop.is_set() or
+                 not controls.empty() or status in {"connecting", "resyncing"} else "normal")
++            ref_allowed = (options["mode"] == "guided" and gate_status is not None and gate_status.get("rest_ready")
++                and not gate_status["state"].startswith("collecting") and not stop.is_set() and controls.empty()
++                and not display_stale and status not in {"connecting", "resyncing", "quality_lock"})
++            for button in reference_buttons: button.configure(state="normal" if ref_allowed else "disabled")
+         refresh_labels()
+         persistence = labels.storage_for(output).status()
+         pending_files = persistence["primary_pending_files"]
+@@ -1994,9 +2306,10 @@
+     p.add_argument("--class-names", nargs=2, default=["石头", "布"], help="按Marker11、13顺序给按钮和识别显示命名；本项目已确认默认映射")
+     p.add_argument("--live-profile", choices=["stable", "replay"], default="stable",
+         help="stable：至少等待0.5秒、5窗4票、末两窗一致、连续5窗放松释放；replay：使用原离线确认参数")
+-    p.add_argument("--activity-mode", choices=["legacy", "robust"], default="robust",
+-        help="legacy沿用离线门控；robust启用启动静息测量、逐通道稳健门限和多通道确认（新方案需独立验证）")
+-    p.add_argument("--rest-seconds", type=float, default=8., help="robust模式预热后连续测量静息的秒数，范围5~30")
++    p.add_argument("--activity-mode", choices=["guided", "legacy", "robust"], default="guided",
++        help="guided：静息和短动作参考自选通道；robust：旧固定两路门控；legacy：原离线门控")
++    p.add_argument("--reference-seconds", type=float, default=3., help="guided模式每个动作参考的保持秒数，2~10")
++    p.add_argument("--rest-seconds", type=float, default=8., help="guided/robust模式的有效静息参考秒数，范围5~30")
+     p.add_argument("--min-active-channels", type=int, default=2, help="robust模式需要增强的通道数，1~4；默认2防止单路极值触发")
+     p.add_argument("--activity-on-z", type=float, default=6., help="robust模式启动门限：偏离静息中位数的稳健尺度倍数")
+     p.add_argument("--activity-off-z", type=float, default=3., help="robust模式释放门限，必须小于启动门限")
+@@ -2019,6 +2332,7 @@
+                 args.max_data_age, args.stall_seconds]) and np.isfinite(args.duration) and args.duration >= 0, "时间参数无效。")
+         require(len(set(args.class_names)) == 2 and not set(args.class_names) & {"actual_class", "漏检"},
+                 "两类名称必须互不相同，且不能使用保留名称actual_class或漏检。")
++        require(np.isfinite(args.reference_seconds) and 2 <= args.reference_seconds <= 10, "动作参考须为2~10秒。")
+         require(np.isfinite(args.rest_seconds) and 5 <= args.rest_seconds <= 30 and
+                 1 <= args.min_active_channels <= 4 and np.isfinite([args.activity_on_z, args.activity_off_z]).all()
+                 and args.activity_on_z > args.activity_off_z >= 0, "静息测量须为5~30秒，通道数须为1~4，启动门限须大于释放门限且非负。")
+@@ -2046,6 +2360,19 @@
+         worker = threading.Thread(target=run_receiver, args=(args, bundle, model_path, params, output, stop, publish, shared), daemon=True)
+         if args.no_ui:
+             worker.start()
++            if args.activity_mode == "guided" and sys.stdin.isatty():
++                def read_controls():
++                    print("终端参考操作：R=重新测静息，0=测石头，1=测布，S=重新订阅，Q=停止；输入后回车。", flush=True)
++                    commands={"r":"recalibrate_rest","0":"reference_stone","1":"reference_paper","s":"resubscribe"}
++                    controls=shared.setdefault("live_controls", queue.Queue())
++                    while not stop.is_set():
++                        try: value=sys.stdin.readline()
++                        except (OSError, ValueError): break
++                        if not value: break
++                        value=value.strip().lower()
++                        if value=="q":stop.set();break
++                        if value in commands:controls.put_nowait(commands[value])
++                threading.Thread(target=read_controls, daemon=True).start()
+             try:
+                 while worker.is_alive(): worker.join(timeout=.2)
+             except KeyboardInterrupt: stop.set(); worker.join(timeout=6)
+--- archive/binary/v1_1_0/run_rp_binary.py
++++ archive/binary/v1_2_0/run_rp_binary.py
+@@ -13,7 +13,7 @@
+ 
+ Marker11石头 -> class0；Marker13布 -> class1；Marker12剪刀不参与拟合。
+ Run1拟合，Run2选择权重/门控，Run1+2最终拟合，Run3+4独立测试。
+-1.1.0实时修订：默认启动后测8秒静息，等待稳定至少0.5秒，至少5窗4票。
++1.2.0实时修订：先测当前静息，再测石头/布各3秒幅值参考；按响应选择活动通道。
+ 离线回放继续使用冻结的原门控。要比较原规则，live添加--live-profile replay --activity-mode legacy。
+ 手工动作标注只评估，不训练、不重置检测器。减为两类不能修复上游流积压。
+ """
+@@ -276,6 +276,83 @@
+     return output
+ 
+ 
++def diagnose_live(log_dir):
++    """Read existing runtime logs; never changes model, thresholds or recording files."""
++    from collections import Counter
++    import numpy as np
++    import pandas as pd
++    root=Path(log_dir).expanduser().resolve()
++    if (root/'live_configuration.json').is_file():
++        config_path=root/'live_configuration.json'
++    else:
++        matches=list(root.rglob('live_configuration.json'))
++        if not matches:raise ValueError('该目录下没有实时配置日志：%s'%root)
++        config_path=max(matches,key=lambda p:p.stat().st_mtime_ns)
++        root=config_path.parent
++    config=read_json(config_path)
++    summary=read_json(root/'session_summary.json') if (root/'session_summary.json').is_file() else {}
++    params=config.get('runtime_detector_settings',config.get('frozen_detector',{}))
++    gate_file=root/('activity_calibration.json' if (root/'activity_calibration.json').is_file() else 'rest_calibration.json')
++    gate=read_json(gate_file) if gate_file.is_file() else {}
++    counts=Counter();qc=Counter();reasons=Counter();candidates=Counter();transport=Counter();total=0;stale=0
++    scores=[]
++    path=root/'window_trace.csv'
++    if path.is_file():
++        columns=pd.read_csv(path,nrows=0,encoding='utf-8-sig').columns
++        use=[k for k in ['detector_state','qc_status','qc_reasons','predicted_class_id','activity_score','output_suppressed_for_data_age'] if k in columns]
++        for chunk in pd.read_csv(path,usecols=use,encoding='utf-8-sig',chunksize=50000,keep_default_na=False):
++            total+=len(chunk)
++            if 'detector_state' in chunk:counts.update(chunk.detector_state.astype(str))
++            if 'qc_status' in chunk:qc.update(chunk.qc_status.astype(str))
++            if 'qc_reasons' in chunk:
++                for value in chunk.qc_reasons.astype(str):reasons.update(v for v in value.split(';') if v)
++            if 'predicted_class_id' in chunk:candidates.update(chunk.predicted_class_id.astype(str))
++            if 'activity_score' in chunk:
++                values=pd.to_numeric(chunk.activity_score,errors='coerce').to_numpy(dtype=float)
++                scores.extend(values[np.isfinite(values)].tolist())
++            if 'output_suppressed_for_data_age' in chunk:stale+=int(chunk.output_suppressed_for_data_age.astype(str).str.lower().eq('true').sum())
++    issues=root/'transport_issues.csv'
++    if issues.is_file():
++        for chunk in pd.read_csv(issues,usecols=['reason'],encoding='utf-8-sig',chunksize=50000,keep_default_na=False):
++            transport.update(chunk.reason.astype(str))
++    raw_info={}
++    raw_path=root/'raw_samples.csv'
++    if raw_path.is_file():
++        channel_columns=['ch%d_uv'%k for k in range(1,5)]
++        raw_count=0;nonfinite={k:0 for k in channel_columns};tail=pd.DataFrame(columns=channel_columns)
++        for chunk in pd.read_csv(raw_path,usecols=channel_columns,encoding='utf-8-sig',chunksize=50000):
++            chunk=chunk.apply(pd.to_numeric,errors='coerce');raw_count+=len(chunk)
++            for k in channel_columns:nonfinite[k]+=int((~np.isfinite(chunk[k].to_numpy(dtype=float))).sum())
++            chunk=chunk.replace([np.inf,-np.inf],np.nan)
++            tail=chunk.tail(1250) if tail.empty else pd.concat([tail,chunk]).tail(1250)
++        raw_info={'received_rows':raw_count,'nonfinite_by_channel':nonfinite,
++            'last_1250_rows_peak_to_peak_uv':{k:float(tail[k].max()-tail[k].min()) if tail[k].notna().any() else None for k in channel_columns}}
++    findings=[]
++    status=gate.get('status',{})
++    if status.get('state')=='failed':findings.append('参考测量失败，分类输出被门控暂停：'+status.get('error','见参考日志'))
++    if status.get('state')=='need_actions':findings.append('静息参考已完成，但尚未完成两个动作参考；请使用测石头、测布按钮。')
++    if qc.get('REVIEW',0):findings.append('存在输入质量拦截；查看qc_reasons中的具体通道和原因。')
++    if stale or summary.get('counters',{}).get('discarded_stale_samples',0):findings.append('存在过时或超前时间戳数据，相关数据未用于输出。')
++    if counts.get('waiting_for_release',0):findings.append('部分窗口等待放松确认；这与分类投票不稳定是不同状态。')
++    if counts.get('unstable',0):findings.append('部分窗口活动已达到门控，但SVM类别投票未稳定。')
++    if transport:findings.append('接收/连续性日志存在记录；小幅批次时间戳抖动仅作警告，其他重置原因需结合计数检查。')
++    if not total and raw_info.get('received_rows',0):findings.append('已经收到原始数据，但没有生成分类窗口；优先检查时间戳拦截和反复滤波预热。')
++    if not summary:findings.append('未找到结束汇总；建议停止并保存后再次诊断。')
++    if not findings:findings.append('日志未显示上述常见拦截；仍需动作真值判断是否存在错分类或漏检。')
++    result={'log_directory':str(root),'script_version':config.get('script_version'),
++        'model_calibration_date':config.get('calibration_date'),'activity_mode':config.get('activity_gate_options',{}).get('mode'),
++        'stream':config.get('stream'),'channels_one_based':config.get('channels_one_based'),'input_unit':config.get('input_unit'),
++        'thresholds':{k:params.get(k) for k in ['on_threshold','off_threshold','settle_seconds','vote_windows','minimum_votes','release_windows']},
++        'windows':total,'state_counts':dict(counts),'qc_counts':dict(qc),'qc_reasons':dict(reasons),
++        'transport_issue_counts':dict(transport),'raw_input':raw_info,
++        'candidate_class_counts_not_accuracy':dict(candidates),'stale_windows':stale,
++        'activity_quantiles':pd.Series(scores,dtype=float).quantile([.1,.5,.9,.99]).dropna().to_dict(),
++        'activity_reference_state':status,'output_events':summary.get('event_count'),
++        'posthoc_evaluation':summary.get('posthoc_evaluation'),'findings':findings}
++    print(json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False))
++    return result
++
++
+ def main():
+     p=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+     sub=p.add_subparsers(dest='command',required=True)
+@@ -293,15 +370,23 @@
+     q=sub.add_parser('live',help='启动实时识别及两个实际动作标注按钮')
+     q.add_argument('--run',required=True,help='包含pipeline_state.json的本次输出目录')
+     q.add_argument('--stream-name',default='rps_raw')
+-    q.add_argument('--activity-mode',choices=['legacy','robust'],default='robust')
++    q.add_argument('--activity-mode',choices=['guided','legacy','robust'],default='guided')
+     q.add_argument('--live-profile',choices=['stable','replay'],default='stable')
++    q.add_argument('--rest-seconds',type=float,default=8.)
++    q.add_argument('--reference-seconds',type=float,default=3.)
++    q.add_argument('--input-unit',choices=['uv','mv','v'],default='uv')
++    q.add_argument('--channels',nargs=4,type=int,default=[1,2,3,4])
++    q.add_argument('--source-id')
+     q.add_argument('--output',default='RP_BINARY_LIVE_LABEL')
+     q.add_argument('--duration',type=float,default=0)
+     q.add_argument('--no-ui',action='store_true')
+     q=sub.add_parser('replay',help='用冻结模型/门控回放当天完整记录，评分Run3/4')
+     q.add_argument('--run',required=True)
++    q=sub.add_parser('diagnose',help='只读取实时日志，列出门控、QC、接收和投票的具体阻塞情况')
++    q.add_argument('--log-dir',required=True,help='某次实时输出子目录，或包含多次实时记录的父目录')
+     args=p.parse_args()
+     try:
++        if args.command=='diagnose':diagnose_live(args.log_dir);return 0
+         if args.command in ['init','day']:run_day(args)
+         else:
+             root=Path(args.run).expanduser().resolve()
+@@ -312,7 +397,10 @@
+             else:
+                 cmd=[sys.executable,str(HERE/SCRIPTS['live']),'--model',state['daily_model'],'--detector',state['detector'],
+                      '--stream-name',args.stream_name,'--activity-mode',args.activity_mode,'--live-profile',args.live_profile,
++                     '--rest-seconds',str(args.rest_seconds),'--reference-seconds',str(args.reference_seconds),
++                     '--input-unit',args.input_unit,'--channels',*map(str,args.channels),
+                      '--output',args.output,'--duration',str(args.duration)]
++                if args.source_id:cmd.extend(['--source-id',args.source_id])
+                 if args.no_ui:cmd.append('--no-ui')
+                 return subprocess.run(cmd).returncode
+         return 0

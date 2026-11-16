@@ -1,0 +1,143 @@
+--- archive/binary/v1_4_0/run_rp_binary.py
++++ archive/binary/repository_integration_20261115/run_rp_binary.py
+@@ -13,11 +13,10 @@
+ 
+ Marker11石头 -> class0；Marker13布 -> class1；Marker12剪刀不参与拟合。
+ Run1拟合，Run2选择权重/门控，Run1+2最终拟合，Run3+4独立测试。
+-1.3.0实时修订：仅测当前静息；自由做动作，由冻结SVM判断，再点击实际动作保存统计。
+-1.3.1：live可显式传入--activity-on-z与--activity-off-z；默认6/3，调参只影响活动门控。
+-1.3.2：可选--live-profile responsive，容忍短暂活动回落并限制投票历史年龄；不会超时强制输出。
+-1.4.0：live添加--trigger-mode manual，点击开始后做动作，固定采集4秒后判断，再标注实际动作。
+-离线回放继续使用冻结的原门控。要比较原规则，live添加--live-profile replay --activity-mode legacy。
++默认--engine classic：原06自动门控流程的二分类适配版；默认使用配套离线门控，不预选动作。
++可选--engine extended：1.4.0扩展版；支持当前静息门控或--trigger-mode manual固定时长按钮识别。
++--gate-profile trial是少量截图推导的临时参数，不是经过验证的通用阈值。
++入口只向选中的引擎转发其支持的参数，避免把扩展版选项传给旧流程版。
+ 手工动作标注只评估，不训练、不重置检测器。减为两类不能修复上游流积压。
+ """
+ from __future__ import annotations
+@@ -38,6 +37,7 @@
+     'calibrate': '03_calibrate_rp_binary_4ch.py',
+     'live': '07_live_rp_binary_label_4ch.py',
+ }
++EXTENDED_LIVE = '07_live_rp_binary_extended_4ch.py'
+ INPUT_SCHEMA = 'openbci_rp_binary_4ch_preprocess_v1'
+ 
+ 
+@@ -275,7 +275,7 @@
+     replay(model,detector,today,output/'HOLDOUT_REPLAY')
+     print('\n二分类基础模型（以后day复用）：\n%s'%base)
+     print('\n当天模型报告：\n%s'%(model_dir/'OPEN_REPORT.html'))
+-    print('\n启动实时识别：\npython "%s" live --run "%s"'%(Path(__file__).resolve(),output))
++    print('\n启动默认自动实时识别：\npython "%s" live --run "%s" --engine classic --gate-profile source'%(Path(__file__).resolve(),output))
+     return output
+ 
+ 
+@@ -358,14 +358,49 @@
+     return result
+ 
+ 
+-def main():
++def live_command(args, state):
++    """Only forward options understood by the selected frozen live engine."""
++    mode = args.activity_mode or ('legacy' if args.engine == 'classic' else 'rest')
++    filename = SCRIPTS['live'] if args.engine == 'classic' else EXTENDED_LIVE
++    path = HERE/filename
++    if not path.is_file(): raise FileNotFoundError(path)
++    timing = ['gate_on', 'gate_off', 'gate_settle_seconds', 'gate_vote_windows', 'gate_min_votes', 'gate_release_windows']
++    if args.engine == 'classic':
++        if mode not in ['legacy', 'robust']:
++            raise ValueError('classic支持legacy/robust；rest请使用--engine extended。')
++        if args.trigger_mode != 'auto' or args.live_profile is not None or args.manual_duration_seconds is not None:
++            raise ValueError('按钮/扩展投票选项请使用--engine extended；classic为自动门控。')
++        # Fail before opening the GUI rather than passing an invalid trial to a worker.
++        if (args.gate_profile == 'trial' or args.gate_on is not None or args.gate_off is not None) and mode != 'legacy':
++            raise ValueError('trial及gate-on/off采用legacy分数，不能与robust混用。')
++    elif args.gate_profile != 'source' or any(getattr(args, key) is not None for key in timing):
++        raise ValueError('gate-profile及gate-*覆盖参数属于classic引擎。')
++    cmd=[sys.executable,str(path),'--model',state['daily_model'],'--detector',state['detector'],
++        '--stream-name',args.stream_name,'--activity-mode',mode,'--rest-seconds',str(args.rest_seconds),
++        '--activity-on-z',str(args.activity_on_z),'--activity-off-z',str(args.activity_off_z),
++        '--input-unit',args.input_unit,'--channels',*map(str,args.channels),
++        '--output',args.output,'--duration',str(args.duration)]
++    if args.engine == 'classic':
++        cmd += ['--gate-profile', args.gate_profile]
++        for key in timing:
++            value = getattr(args, key)
++            if value is not None: cmd += ['--'+key.replace('_','-'), str(value)]
++    else:
++        cmd += ['--live-profile',args.live_profile or 'stable','--trigger-mode',args.trigger_mode,
++            '--manual-duration-seconds',str(args.manual_duration_seconds if args.manual_duration_seconds is not None else 4.)]
++    if args.source_id: cmd += ['--source-id',args.source_id]
++    if args.no_ui: cmd += ['--no-ui']
++    return cmd
++
++
++def main(argv=None):
+     p=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+     sub=p.add_subparsers(dest='command',required=True)
+     for command in ['init','day']:
+         q=sub.add_parser(command,help='首次重训二分类基础模型并校准' if command=='init' else '复用二分类基础模型进行新一天校准')
+         q.add_argument('--today-input',required=True,help='今天采集的原始TXT完整路径')
+         q.add_argument('--subject',default='USER01')
+-        q.add_argument('--output',default='RP_BINARY_NEW_DAY')
++        q.add_argument('--output',default='outputs/RP_BINARY_NEW_DAY')
+         if command=='init':
+             g=q.add_mutually_exclusive_group(required=True)
+             g.add_argument('--legacy-base',help='旧三分类模型路径；仅用旁边training_config定位历史数据，不使用其SVM')
+@@ -375,24 +410,33 @@
+     q=sub.add_parser('live',help='启动实时识别及两个实际动作标注按钮')
+     q.add_argument('--run',required=True,help='包含pipeline_state.json的本次输出目录')
+     q.add_argument('--stream-name',default='rps_raw')
+-    q.add_argument('--activity-mode',choices=['rest','legacy','robust'],default='rest')
+-    q.add_argument('--live-profile',choices=['stable','responsive','replay'],default='stable')
++    q.add_argument('--engine',choices=['classic','extended'],default='classic')
++    q.add_argument('--activity-mode',choices=['rest','legacy','robust'],default=None,
++        help='默认classic使用legacy，extended使用rest')
++    q.add_argument('--live-profile',choices=['stable','responsive','replay'],default=None)
+     q.add_argument('--trigger-mode',choices=['auto','manual'],default='auto',help='manual：点击后做动作，固定采集后分类，绕过活动门控')
+-    q.add_argument('--manual-duration-seconds',type=float,default=4.,help='按钮点击后采集3~4秒，默认4秒')
++    q.add_argument('--manual-duration-seconds',type=float,default=None,help='extended按钮模式默认4秒')
++    q.add_argument('--gate-profile',choices=['source','trial'],default='source')
++    q.add_argument('--gate-on',type=float)
++    q.add_argument('--gate-off',type=float)
++    q.add_argument('--gate-settle-seconds',type=float)
++    q.add_argument('--gate-vote-windows',type=int)
++    q.add_argument('--gate-min-votes',type=int)
++    q.add_argument('--gate-release-windows',type=int)
+     q.add_argument('--rest-seconds',type=float,default=8.)
+     q.add_argument('--activity-on-z',type=float,default=6.,help='rest/robust启动门限；6为默认工程设置，并非个体最优值')
+     q.add_argument('--activity-off-z',type=float,default=3.,help='rest/robust释放门限，须小于启动门限')
+     q.add_argument('--input-unit',choices=['uv','mv','v'],default='uv')
+     q.add_argument('--channels',nargs=4,type=int,default=[1,2,3,4])
+     q.add_argument('--source-id')
+-    q.add_argument('--output',default='RP_BINARY_LIVE_LABEL')
++    q.add_argument('--output',default='outputs/RP_BINARY_LIVE_LABEL')
+     q.add_argument('--duration',type=float,default=0)
+     q.add_argument('--no-ui',action='store_true')
+     q=sub.add_parser('replay',help='用冻结模型/门控回放当天完整记录，评分Run3/4')
+     q.add_argument('--run',required=True)
+     q=sub.add_parser('diagnose',help='只读取实时日志，列出门控、QC、接收和投票的具体阻塞情况')
+     q.add_argument('--log-dir',required=True,help='某次实时输出子目录，或包含多次实时记录的父目录')
+-    args=p.parse_args()
++    args=p.parse_args(argv)
+     try:
+         if args.command=='diagnose':diagnose_live(args.log_dir);return 0
+         if args.command in ['init','day']:run_day(args)
+@@ -403,15 +447,7 @@
+             if args.command=='replay':
+                 replay(state['daily_model'],state['detector'],state['today_data'],root/('REPLAY_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')))
+             else:
+-                cmd=[sys.executable,str(HERE/SCRIPTS['live']),'--model',state['daily_model'],'--detector',state['detector'],
+-                     '--stream-name',args.stream_name,'--activity-mode',args.activity_mode,'--live-profile',args.live_profile,
+-                     '--trigger-mode',args.trigger_mode,'--manual-duration-seconds',str(args.manual_duration_seconds),
+-                     '--rest-seconds',str(args.rest_seconds),
+-                     '--activity-on-z',str(args.activity_on_z),'--activity-off-z',str(args.activity_off_z),
+-                     '--input-unit',args.input_unit,'--channels',*map(str,args.channels),
+-                     '--output',args.output,'--duration',str(args.duration)]
+-                if args.source_id:cmd.extend(['--source-id',args.source_id])
+-                if args.no_ui:cmd.append('--no-ui')
++                cmd=live_command(args,state)
+                 return subprocess.run(cmd).returncode
+         return 0
+     except KeyboardInterrupt:return 130

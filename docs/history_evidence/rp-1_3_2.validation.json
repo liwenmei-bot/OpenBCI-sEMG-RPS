@@ -1,0 +1,29 @@
+{
+  "version": "1.3.2-rp-rest",
+  "test_counts": {
+    "latency": 11,
+    "rest_only_and_label_isolation": 14,
+    "compatibility": 13,
+    "threshold": 7
+  },
+  "scope": "Saved software/synthetic/native-loopback validation, not participant OpenBCI hardware accuracy.",
+  "file_hashes": {
+    "07_live_rp_binary_label_4ch.py": "c25ced6716c81def17439156269caadc3676a5c238a276096addb0abe6272ee9",
+    "run_rp_binary.py": "453ad98a6591ba6fdc936bb27b37d8729c689d621e8d10cc06e763d2972ccf65"
+  },
+  "historical_original_manifest_sha256": "84c4286ce28b34ff0a4b7a39326b432bb36b3294c7962302b8b72611728a932f",
+  "reexecuted_for_this_history_writeup": false,
+  "synthetic_reproduction": {
+    "stable_seconds": 12.9,
+    "responsive_seconds": 1.0,
+    "description": "Identical class1 predictions, single finite amplitude dip every eight windows; not user performance."
+  },
+  "unchanged_components": [
+    "extract_features",
+    "CausalWindowStream",
+    "RestOnlyActivityGate",
+    "PosthocLabels",
+    "TransportGuard",
+    "predict"
+  ]
+}

@@ -1,0 +1,223 @@
+--- archive/binary/v1_0_0/07_live_rp_binary_label_4ch.py
++++ archive/binary/v1_1_0/07_live_rp_binary_label_4ch.py
+@@ -4,7 +4,8 @@
+ 
+ 石头 Marker11 -> class0；布 Marker13 -> class1。静息由活动门控处理。
+ Python >= 3.9；依赖 numpy pandas scipy scikit-learn joblib，实时另需 pylsl。
+-二分类独立版本 1.0.0；不能加载旧二分类模型。
++实时修订版 1.1.0：默认先测当前静息，再等待稳定动作；兼容已有二分类模型和门控文件。
++旧三分类模型不可用于本脚本。--live-profile replay --activity-mode legacy 可复现原离线规则。
+ """
+ from __future__ import annotations
+ 
+@@ -560,6 +561,12 @@
+             return "waiting_for_release", None
+         if self.emitted:
+             return "active_latched", None
++        if self.params.get("restart_settle_after_activity_drop", False) and activity < self.params["on_threshold"]:
++            # 尚未输出时，动作候选必须连续；低活动后重新确认起点及稳定等待。
++            # 已输出事件仍只由真正连续低于OFF的窗口释放，不按时间强制解锁。
++            self.active, self.on_count, self.onset_candidate_row = False, 0, None
++            self.history.clear()
++            return "quiet_or_candidate", None
+         settle_samples = int(self.params.get("settle_samples", 0))
+         if not self.active:
+             if activity >= self.params["on_threshold"]:
+@@ -598,6 +605,9 @@
+         means = np.mean([x[1] for x in self.history], axis=0)
+         tied = np.flatnonzero(votes == votes.max())
+         winner = int(tied[np.argmax(means[tied])])
++        terminal = int(self.params.get("terminal_consistent_windows", 0))
++        if terminal and (len(labels) < terminal or not np.all(labels[-terminal:] == winner)):
++            return "unstable", None
+         event = {"event_id": len(self.events) + 1, "decision_row": int(row),
+                  "onset_candidate_row": self.onset_candidate_row, "class_id": winner,
+                  "vote_agreement": float(votes[winner] / len(labels)),
+@@ -744,7 +754,7 @@
+ import queue
+ import threading
+ 
+-LIVE_VERSION = "1.0.0-rp-binary"
++LIVE_VERSION = "1.1.0-rp-stable"
+ LIVE_SCHEMA = "openbci_rp_binary_4ch_svm_live_v1"
+ STATE_NAMES = {
+     "waiting_for_release": "请先放松手臂", "released": "已放松，等待动作",
+@@ -948,7 +958,7 @@
+ 
+ 
+ def live_gate_options(args):
+-    return {"mode": getattr(args, "activity_mode", "legacy"),
++    return {"mode": getattr(args, "activity_mode", "robust"),
+         "rest_seconds": float(getattr(args, "rest_seconds", 8.)),
+         "minimum_active_channels": int(getattr(args, "min_active_channels", 2)),
+         "on_z": float(getattr(args, "activity_on_z", 6.)),
+@@ -958,6 +968,24 @@
+ def runtime_detector_params(params, args):
+     result = dict(params)
+     options = live_gate_options(args)
++    profile = getattr(args, "live_profile", "stable")
++    require(profile in {"stable", "replay"}, "实时确认配置必须为stable或replay。")
++    result["live_profile"] = profile
++    if profile == "stable":
++        fs = float(params["preprocess_config"]["fs"])
++        hop = int(params["hop_samples"])
++        width = max(5, int(params["vote_windows"]))
++        result.update({
++            "settle_samples": max(int(params["settle_samples"]), int(math.ceil(.5*fs/hop))*hop),
++            "on_windows": max(3, int(params["on_windows"])),
++            "release_windows": max(5, int(params["release_windows"])),
++            "vote_windows": width,
++            "minimum_votes": max(int(params["minimum_votes"]), int(math.ceil(.8*width))),
++            "terminal_consistent_windows": 2,
++            "restart_settle_after_activity_drop": True,
++            "live_confirmation_settings_empirically_validated": False,
++        })
++        result["settle_seconds"] = result["settle_samples"]/fs
+     if options["mode"] == "robust":
+         result.update({"on_threshold": options["on_z"], "off_threshold": options["off_z"],
+             "activity_score": "kth_largest_channel_robust_rms_z",
+@@ -1145,6 +1173,13 @@
+                     "activity_score": activity, "detector_state": state,
+                     "output_suppressed_for_data_age": not timely,
+                     "trigger_event_id": event["event_id"] if event else -1})
++                record.update({"live_profile": self.params.get("live_profile", "replay"),
++                    "release_progress": min(self.detector.off_count, self.params["release_windows"]),
++                    "release_required": self.params["release_windows"],
++                    "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"],
++                    "onset_candidate_row": self.detector.onset_candidate_row,
++                    "settle_elapsed_s": None if self.detector.onset_candidate_row is None else
++                        (frame["decision_row"]-self.detector.onset_candidate_row)/float(self.config["fs"])})
+                 record.update({"decision_%d" % k: scores[i, k] for k in range(2)})
+                 record.update(dict(zip(FEATURE_NAMES, features[i])))
+                 if self.activity_gate is not None:
+@@ -1161,7 +1196,10 @@
+         event = self.detector.active_event
+         result = {"state": self.last_state, "activity": self.last_activity, "qc": self.last_qc,
+             "gesture": event["class_name"] if event else "—", "event_count": len(self.detector.events),
+-            "samples": self.stream.position}
++            "samples": self.stream.position,
++            "release_progress": min(self.detector.off_count, self.params["release_windows"]),
++            "release_required": self.params["release_windows"],
++            "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"]}
+         if self.activity_gate is not None: result["activity_gate"] = self.activity_gate.snapshot()
+         return result
+ 
+@@ -1382,7 +1420,8 @@
+             "decision_lsl_time_s", "processed_local_clock_s", "data_age_s", "predicted_class_id", "decision_0", "decision_1",
+             "activity_score", "detector_state", "output_suppressed_for_data_age", "trigger_event_id"] + FEATURE_NAMES +
+             ["activity_mode", "legacy_activity_score", "rest_calibration_revision", "rest_calibration_state",
+-             "channels_above_on", "channels_above_off"] + ["activity_z_ch%d" % k for k in range(1, 5)])
++             "channels_above_on", "channels_above_off", "live_profile", "release_progress", "release_required",
++             "vote_progress", "vote_required", "onset_candidate_row", "settle_elapsed_s"] + ["activity_z_ch%d" % k for k in range(1, 5)])
+         self.open_csv("transport_issues.csv", ["received_row", "reason", "timestamp_dt_s", "wall_time"])
+         self.open_csv("transport_health.csv", ["wall_time", "received_samples", "local_clock_s",
+             "last_sample_lsl_time_s", "lsl_age_s", "receive_rate_hz_5s", "inlet_queued_samples", "stream_uid"])
+@@ -1512,6 +1551,7 @@
+             "marker_codes_for_display_only": [11, 13], "gui_output_required": "TimeSeriesRaw_unfiltered_uV",
+             "preprocess_config": bundle["preprocess_config"], "frozen_detector": params,
+             "activity_gate_options": options, "runtime_detector_settings": effective_params,
++            "live_profile": effective_params["live_profile"],
+             "input_detector_file_modified": False,
+             "activity_reference_update_policy": "explicit_rest_measurement_then_frozen" if gate is not None else "input_file_frozen",
+             "classifier_updated_during_session": False, "gesture_markers_used_for_inference": False,
+@@ -1538,6 +1578,9 @@
+         log("启动订阅已就绪，清理Python接收缓存%d点；此操作不能清空GUI或板卡上游队列。" % dropped, output)
+         log("已连接：%s；%sHz；LSL共%d通道，读取%s。" % (metadata["name"], fs, metadata["channels"], args.channels), output)
+         log("保持手臂放松，等预热和释放状态完成后再做动作；每次动作后放松。", output)
++        log("实时确认=%s：等待%.2f秒，%d窗至少%d票，连续%d窗放松后释放。" %
++            (effective_params["live_profile"], effective_params["settle_seconds"],
++             effective_params["vote_windows"], effective_params["minimum_votes"], effective_params["release_windows"]), output)
+         if gate is not None:
+             log("稳健活动门控：预热后测%.1f秒静息，至少%d路增强才启动；测量期间不输出，完成后参考冻结。" %
+                 (gate.seconds, gate.minimum_channels), output)
+@@ -1644,8 +1687,8 @@
+             for record in emitted:
+                 event = engine.detector.events[record["trigger_event_id"]-1]
+                 log("识别：%s（显示Marker %d）；稳定票%d/%d；事件%d。" %
+-                    (event["class_name"], event["marker_code_for_display"], round(event["vote_agreement"]*params["vote_windows"]),
+-                     params["vote_windows"], event["event_id"]), output)
++                    (event["class_name"], event["marker_code_for_display"], round(event["vote_agreement"]*effective_params["vote_windows"]),
++                     effective_params["vote_windows"], event["event_id"]), output)
+             if args.no_ui and tick - last_console >= 2:
+                 log("%s；活动=%s；累计输出%d次。" % (STATE_NAMES.get(snapshot["state"], snapshot["state"]),
+                     "—" if snapshot["activity"] is None else "%.2f" % snapshot["activity"], snapshot["event_count"]), output)
+@@ -1674,6 +1717,7 @@
+                 "model_and_detector_files_unchanged": unchanged, "counters": journal.counts if journal else {}}
+             summary["lsl_connection_count"] = len(local_config.get("connection_history", [])) if journal is not None else 0
+             summary["activity_mode"] = options["mode"]
++            summary["live_profile"] = effective_params["live_profile"]
+             if gate is not None:
+                 snapshots.json("rest_calibration.json", gate.report())
+                 summary["rest_calibration_status"] = gate.snapshot()
+@@ -1728,7 +1772,7 @@
+     root.configure(bg="#f2f5fa")
+     body = ttk.Frame(root, padding=14); body.pack(fill="both", expand=True)
+     ttk.Label(body, text="四通道 sEMG · 实时识别与动作标注", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
+-    ttk.Label(body, text="%s  |  校准日期 %s  |  %s Hz  |  程序 %s" %
++    ttk.Label(body, text="%s  |  分类模型校准日期 %s  |  %s Hz  |  程序 %s" %
+         (bundle["subject_id"], bundle["calibration_date"], bundle["preprocess_config"]["fs"], LIVE_VERSION)).pack(anchor="w", pady=(5, 8))
+     gesture, state, detail = tk.StringVar(value="—"), tk.StringVar(value="正在查找LSL数据流"), tk.StringVar(value="请先启动GUI中的原始时间序列LSL输出")
+     ttk.Label(body, text="本次锁定的识别结果（放松后释放）", foreground="#56647a").pack()
+@@ -1805,6 +1849,9 @@
+     ttk.Label(body, text="准确率=正确÷（正确+错误+手动记录漏检）。未标注事件不计入；没有输出的动作需手动记录。",
+         wraplength=760, foreground="#56647a").pack(anchor="w", pady=4)
+     ttk.Label(body, text="每次动作后放松；标注仅用于统计，不会改变识别结果。", wraplength=760).pack(anchor="w", pady=3)
++    ttk.Label(body, text="等待稳定 %.2f秒；%d窗至少%d票；放松需连续%d窗确认。" %
++        (display_params["settle_seconds"], display_params["vote_windows"], display_params["minimum_votes"],
++         display_params["release_windows"]), wraplength=760).pack(anchor="w")
+     ttk.Label(body, text="输出目录：" + str(output), wraplength=760, foreground="#56647a").pack(anchor="w", pady=3)
+     storage_notice = tk.StringVar(value="")
+     ttk.Label(body, textvariable=storage_notice, wraplength=760, foreground="#ad5c00").pack(anchor="w", pady=2)
+@@ -1892,6 +1939,9 @@
+                     (current.get("event_count", 0), current.get("samples", 0), current.get("qc") or "—",
+                      "—" if age is None else "%.0f ms" % (age*1000),
+                      "—" if rate is None else "%.1f Hz" % rate, "—" if queued is None else queued))
++                if "release_progress" in current:
++                    detail.set(detail.get()+" | 放松确认%d/%d | 投票%d/%d" %
++                        (current["release_progress"], current["release_required"], current["vote_progress"], current["vote_required"]))
+             resubscribe_button.configure(state="disabled" if stop.is_set() or not controls.empty() or
+                 status in {"connecting", "resyncing"} else "normal")
+             rest_button.configure(state="disabled" if options["mode"] != "robust" or stop.is_set() or
+@@ -1942,7 +1992,9 @@
+     p.add_argument("--counter-channel", type=int, help="可选，仅当LSL确实另外包含原始Sample Index时指定；GUI TimeSeriesRaw通常不包含")
+     p.add_argument("--input-unit", choices=["uv", "mv", "v"], default="uv", help="OpenBCI GUI原始时间序列默认微伏")
+     p.add_argument("--class-names", nargs=2, default=["石头", "布"], help="按Marker11、13顺序给按钮和识别显示命名；本项目已确认默认映射")
+-    p.add_argument("--activity-mode", choices=["legacy", "robust"], default="legacy",
++    p.add_argument("--live-profile", choices=["stable", "replay"], default="stable",
++        help="stable：至少等待0.5秒、5窗4票、末两窗一致、连续5窗放松释放；replay：使用原离线确认参数")
++    p.add_argument("--activity-mode", choices=["legacy", "robust"], default="robust",
+         help="legacy沿用离线门控；robust启用启动静息测量、逐通道稳健门限和多通道确认（新方案需独立验证）")
+     p.add_argument("--rest-seconds", type=float, default=8., help="robust模式预热后连续测量静息的秒数，范围5~30")
+     p.add_argument("--min-active-channels", type=int, default=2, help="robust模式需要增强的通道数，1~4；默认2防止单路极值触发")
+--- archive/binary/v1_0_0/run_rp_binary.py
++++ archive/binary/v1_1_0/run_rp_binary.py
+@@ -13,7 +13,8 @@
+ 
+ Marker11石头 -> class0；Marker13布 -> class1；Marker12剪刀不参与拟合。
+ Run1拟合，Run2选择权重/门控，Run1+2最终拟合，Run3+4独立测试。
+-默认实时门控与连续回放一致；robust静息测量是可选实验方案。
++1.1.0实时修订：默认启动后测8秒静息，等待稳定至少0.5秒，至少5窗4票。
++离线回放继续使用冻结的原门控。要比较原规则，live添加--live-profile replay --activity-mode legacy。
+ 手工动作标注只评估，不训练、不重置检测器。减为两类不能修复上游流积压。
+ """
+ from __future__ import annotations
+@@ -292,7 +293,8 @@
+     q=sub.add_parser('live',help='启动实时识别及两个实际动作标注按钮')
+     q.add_argument('--run',required=True,help='包含pipeline_state.json的本次输出目录')
+     q.add_argument('--stream-name',default='rps_raw')
+-    q.add_argument('--activity-mode',choices=['legacy','robust'],default='legacy')
++    q.add_argument('--activity-mode',choices=['legacy','robust'],default='robust')
++    q.add_argument('--live-profile',choices=['stable','replay'],default='stable')
+     q.add_argument('--output',default='RP_BINARY_LIVE_LABEL')
+     q.add_argument('--duration',type=float,default=0)
+     q.add_argument('--no-ui',action='store_true')
+@@ -309,7 +311,8 @@
+                 replay(state['daily_model'],state['detector'],state['today_data'],root/('REPLAY_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')))
+             else:
+                 cmd=[sys.executable,str(HERE/SCRIPTS['live']),'--model',state['daily_model'],'--detector',state['detector'],
+-                     '--stream-name',args.stream_name,'--activity-mode',args.activity_mode,'--output',args.output,'--duration',str(args.duration)]
++                     '--stream-name',args.stream_name,'--activity-mode',args.activity_mode,'--live-profile',args.live_profile,
++                     '--output',args.output,'--duration',str(args.duration)]
+                 if args.no_ui:cmd.append('--no-ui')
+                 return subprocess.run(cmd).returncode
+         return 0

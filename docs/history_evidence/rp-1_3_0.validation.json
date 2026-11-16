@@ -1,0 +1,16 @@
+{
+  "version": "1.3.0-rp-rest",
+  "test_counts": {
+    "rest_only": 14,
+    "compatibility": 13,
+    "offline_pipeline": 10,
+    "native_lsl_sessions": 2
+  },
+  "scope": "Saved software/synthetic/native-loopback validation, not participant OpenBCI hardware accuracy.",
+  "file_hashes": {
+    "07_live_rp_binary_label_4ch.py": "9a53cecc5da3bc9cb88254263173ef05fd709ca65146243d320001a9ebbd5fc9",
+    "run_rp_binary.py": "17ccdae6e98c3015720933c9f602db0ca93c7c8c8dfeb071493ed9c586d3f477"
+  },
+  "historical_original_manifest_sha256": "3d4625ba730730b7ce9d19882c19e4589e5125309a8058effe58f5aae8280ff5",
+  "reexecuted_for_this_history_writeup": false
+}

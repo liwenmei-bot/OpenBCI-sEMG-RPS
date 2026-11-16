@@ -291,6 +291,38 @@
       "kind": "preserved_source_snapshot",
       "original_sha256": "2af48a46d26f0dba0ae45d648eaebb7f7c9c4235fd258c0a568f2b8222091039",
       "included_sha256": "2af48a46d26f0dba0ae45d648eaebb7f7c9c4235fd258c0a568f2b8222091039"
+    },
+    {
+      "path": "archive/binary/v1_4_0/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py",
+      "original_sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29",
+      "included_sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29",
+      "kind": "preserved_source_snapshot",
+      "revision": "rp-1.4.0"
+    },
+    {
+      "path": "archive/binary/v1_4_0/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py",
+      "original_sha256": "249ebdb00ecbe11d7576da119bd47bf319d6f817a7fd4296b07546003cb3e599",
+      "included_sha256": "249ebdb00ecbe11d7576da119bd47bf319d6f817a7fd4296b07546003cb3e599",
+      "kind": "preserved_source_snapshot",
+      "revision": "rp-1.4.0"
+    },
+    {
+      "path": "archive/binary/classic_v1_0_1/07_live_rp_binary_label_4ch.py",
+      "original_filename": "07_live_rp_binary_label_4ch.py",
+      "original_sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a",
+      "included_sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a",
+      "kind": "preserved_source_snapshot",
+      "revision": "classic-1.0.1"
+    },
+    {
+      "path": "archive/binary/repository_integration_20261115/run_rp_binary.py",
+      "original_filename": "run_rp_binary.py",
+      "original_sha256": "0ac09082f5089ae42dbe2f257f099283877a42324cfb98df316dc110d5e7de64",
+      "included_sha256": "0ac09082f5089ae42dbe2f257f099283877a42324cfb98df316dc110d5e7de64",
+      "kind": "preserved_source_snapshot",
+      "revision": "repository-integration-20261115"
     }
   ],
   "snapshot_date": "2026-11-15",
@@ -298,5 +330,9 @@
     "This inventory records recovered project files, not a claim to possess every file on the original Windows computer.",
     "New integration code, documentation, tests and configuration are covered by SOURCE_MANIFEST.json.",
     "No participant recordings, fitted model files, credentials or local experiment outputs are distributed."
+  ],
+  "history_inventory": "docs/binary_version_history.json",
+  "source_snapshot_gaps": [
+    "classic-1.0.0: construction evidence exists, independently verifiable full source snapshot not found."
   ]
 }

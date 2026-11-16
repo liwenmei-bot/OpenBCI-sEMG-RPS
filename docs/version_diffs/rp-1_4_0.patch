@@ -1,0 +1,579 @@
+--- archive/binary/v1_3_2/07_live_rp_binary_label_4ch.py
++++ archive/binary/v1_4_0/07_live_rp_binary_label_4ch.py
+@@ -641,6 +641,122 @@
+         self.events.append(event); self.active_event = event; self.emitted = True
+         return "triggered", event
+ 
++class ButtonGestureDetector(GestureDetector):
++    """Button time fixes a capture interval; the button supplies no class label."""
++    def __init__(self, params):
++        self.request_id, self.requests, self.processing_clock, self.sample_clock = 0, [], None, None
++        super().__init__(params)
++
++    def reset_state(self):
++        super().reset_state()
++        self.pending, self.requested_clock, self.capture_end, self.deadline = False, None, None, None
++        self.not_before_row, self.status, self.invalid_windows = None, "manual_idle", 0
++
++    def finish_request(self, status, reason="", event_id=None):
++        if self.requests and self.requests[-1]["status"] == "pending":
++            completed = self.processing_clock
++            if completed is not None and completed < self.requests[-1]["requested_lsl_time_s"]: completed = None
++            self.requests[-1].update(status=status, reason=reason, completed_lsl_time_s=completed,
++                event_id=event_id, valid_windows=len(self.history), invalid_windows=self.invalid_windows)
++        self.pending = False
++
++    def close(self, row, reason):
++        super().close(row, reason)
++        if getattr(self, "pending", False): self.finish_request("interrupted", reason)
++
++    def request(self, requested_clock, row, segment_id):
++        require(np.isfinite(requested_clock), "按钮时间无效。")
++        require(not self.pending, "本次动作采集尚未结束。")
++        self.close(row, "next_button_request")
++        self.reset_state(); self.segment_id = segment_id
++        self.request_id += 1
++        self.pending, self.requested_clock = True, float(requested_clock)
++        self.processing_clock = self.requested_clock
++        self.capture_end = self.requested_clock+float(self.params["manual_capture_seconds"])
++        self.deadline = self.capture_end+float(self.params["manual_grace_seconds"])
++        self.not_before_row, self.onset_candidate_row = int(row), int(row)
++        self.status = "manual_settling"
++        self.requests.append({"request_id":self.request_id, "requested_lsl_time_s":self.requested_clock,
++            "capture_end_lsl_time_s":self.capture_end, "accepted_row":int(row), "status":"pending",
++            "requested_class":None, "completed_lsl_time_s":None, "event_id":None, "reason":""})
++
++    def exclude_preclick_samples(self, stamps, origin):
++        if not self.pending: return
++        previous = np.flatnonzero(~np.isfinite(stamps) | (stamps < self.requested_clock))
++        if len(previous):
++            updated = max(self.not_before_row, int(origin+previous[-1]+1))
++            if updated != self.not_before_row: self.not_before_row = updated; self.clear_votes()
++
++    def check_timeout(self, now):
++        self.processing_clock = float(now)
++        if self.pending and now >= self.deadline:
++            self.finish_request("timeout", "capture_end_not_reached_with_timely_data")
++            self.clear_votes(); self.status = "manual_timeout"
++            return True
++        return False
++
++    def decide(self, row, activity):
++        if len(self.history) < self.params["manual_minimum_valid_windows"]:
++            self.finish_request("insufficient_valid_windows", "not_enough_quality_valid_post_transition_windows")
++            self.status = "manual_quality_failed"
++            return self.status, None
++        labels = np.asarray([value[0] for value in self.history])
++        votes = np.bincount(labels, minlength=2)
++        means = np.mean([value[1] for value in self.history], axis=0)
++        tied = np.flatnonzero(votes==votes.max())
++        winner = int(tied[np.argmax(means[tied])])
++        event = {"event_id":len(self.events)+1, "decision_row":int(row),
++            "onset_candidate_row":self.onset_candidate_row, "class_id":winner,
++            "vote_agreement":float(votes[winner]/len(labels)), "activity_score":float(activity),
++            "release_row":None, "release_reason":"manual_result_until_next_click_or_stop",
++            "trigger_mode":"manual", "manual_request_id":self.request_id,
++            "manual_requested_lsl_time_s":self.requested_clock,
++            "manual_response_seconds":self.processing_clock-self.requested_clock,
++            "manual_first_allowed_start_row":self.not_before_row+int(self.params["settle_samples"]),
++            "manual_capture_seconds":self.params["manual_capture_seconds"], "manual_valid_windows":len(labels)}
++        self.events.append(event); self.active_event = event; self.emitted = True
++        self.finish_request("recognized", event_id=event["event_id"])
++        self.status = "manual_result"
++        return self.status, event
++
++    def step(self, row, segment_id, usable, activity, predicted, decision_scores):
++        if self.segment_id != segment_id:
++            was_pending = self.pending
++            self.close(row, "continuity_segment_change"); self.reset_state(); self.segment_id = segment_id
++            if was_pending:
++                self.status = "manual_interrupted"
++                return self.status, None
++        if self.pending and self.processing_clock is not None and self.check_timeout(self.processing_clock):
++            return self.status, None
++        if not self.pending:
++            if not usable:
++                return "manual_quality_failed", None
++            return ("manual_result" if self.active_event is not None else self.status), None
++        require(self.sample_clock is not None and self.processing_clock is not None, "按钮模式缺少窗口时间戳。")
++        first_end = self.not_before_row+int(self.params["settle_samples"])+int(self.params["window_samples"])-1
++        if row < first_end:
++            self.status = "manual_settling"
++            return self.status, None
++        # End-of-window time must fit inside the fixed capture interval. A later
++        # window only confirms the watermark, and never contributes to the vote.
++        if self.sample_clock <= self.capture_end:
++            if usable and predicted >= 0 and np.isfinite(decision_scores).all():
++                self.append_vote(row, predicted, decision_scores)
++            else: self.invalid_windows += 1
++        if self.processing_clock >= self.capture_end and self.sample_clock >= self.capture_end:
++            return self.decide(row, activity)
++        self.status = "manual_collecting_votes"
++        return self.status, None
++
++    def snapshot(self):
++        remaining = None if not self.pending or self.processing_clock is None else max(0.,self.capture_end-self.processing_clock)
++        return {"manual_pending":self.pending, "manual_request_id":self.request_id,
++            "manual_seconds_remaining":remaining, "manual_request_count":len(self.requests),
++            "manual_timeout_count":sum(request["status"]=="timeout" for request in self.requests),
++            "manual_capture_seconds":self.params["manual_capture_seconds"],
++            "manual_minimum_valid_windows":self.params["manual_minimum_valid_windows"]}
++
++
+ def detect(frames, scores, params, keep_trace=False):
+     detector = GestureDetector(params)
+     trace = []
+@@ -780,7 +896,7 @@
+ import queue
+ import threading
+ 
+-LIVE_VERSION = "1.3.2-rp-rest"
++LIVE_VERSION = "1.4.0-rp-button"
+ LIVE_SCHEMA = "openbci_rp_binary_4ch_svm_live_v1"
+ STATE_NAMES = {
+     "waiting_for_release": "请先放松手臂", "released": "已放松，等待动作",
+@@ -794,6 +910,14 @@
+     "resyncing": "正在重新订阅LSL，等待新数据",
+     "rest_calibrating": "正在测量静息，请保持手臂放松；暂不识别",
+     "rest_calibration_failed": "静息测量未通过，请放松后点击“重新测静息”",
++    "manual_idle": "等待点击开始识别",
++    "manual_settling": "请开始做动作，保持到倒计时结束",
++    "manual_collecting_votes": "正在采集动作，保持到倒计时结束",
++    "manual_unstable": "类别暂不稳定，正在继续确认",
++    "manual_result": "已识别，请标注实际动作",
++    "manual_timeout": "本次未收到完整数据，请重新点击开始识别",
++    "manual_quality_failed": "有效信号不足，请检查后重新开始",
++    "manual_interrupted": "数据连续性中断，本次识别已取消",
+ }
+ 
+ 
+@@ -804,6 +928,7 @@
+     if snapshot.get("qc") == "REVIEW" or state == "quality_lock":
+         return "输入质量检查未通过："+(snapshot.get("qc_reasons") or "检查四路输入、单位和时间戳")
+     gate = snapshot.get("activity_gate") or {}
++    if state.startswith("manual_"): return STATE_NAMES.get(state, state)
+     if state in {"rest_calibrating", "rest_calibration_failed"}:
+         return gate.get("error") or STATE_NAMES[state]
+     if state in {"triggered", "active_latched"}: return "本次已有输出；需放松至释放条件后再做下一次"
+@@ -1066,6 +1191,24 @@
+             "source_gate_activity_thresholds_used": False,
+             "source_noise_reference_usage": "legacy_comparison_score_only",
+             "gesture_reference_labels_used": False})
++    result["trigger_mode"] = getattr(args, "trigger_mode", "auto")
++    if result["trigger_mode"] == "manual":
++        fs = float(params["preprocess_config"]["fs"]); hop = int(params["hop_samples"])
++        duration = float(getattr(args,"manual_duration_seconds",4.))
++        transition = 1.
++        width = int(params["window_samples"])
++        count = int(math.floor(((duration-transition)*fs-width)/hop))+1
++        result.update({"settle_samples":int(round(transition*fs)), "settle_seconds":transition,
++            "vote_windows":count, "minimum_votes":count//2+1, "terminal_consistent_windows":0,
++            "manual_capture_seconds":duration, "manual_transition_seconds":transition,
++            "manual_minimum_valid_windows":int(math.ceil(.8*count)),
++            "manual_grace_seconds":max(.2,float(getattr(args,"max_data_age",.75))),
++            "vote_history_max_age_samples":int(math.ceil((duration-transition)*fs)),
++            "runtime_activity_reference":"not_used_manual_button", "source_gate_activity_thresholds_used":False,
++            "emit_requires_current_activity_above_on":False,
++            "vote_history_excludes_settling_and_low_activity":False,
++            "gesture_onset_provided_by_user_button":True,
++            "manual_labels_used_for_inference":False})
+     return result
+ 
+ 
+@@ -1268,7 +1411,9 @@
+         self.bundle, self.params = bundle, params
+         self.config = bundle["preprocess_config"]
+         self.stream = CausalWindowStream(self.config)
+-        self.detector = GestureDetector(params)
++        self.manual = params.get("trigger_mode", "auto") == "manual"
++        require(not self.manual or activity_gate is None, "按钮识别不使用活动门控。")
++        self.detector = ButtonGestureDetector(params) if self.manual else GestureDetector(params)
+         self.names = list(names or bundle["class_names"])
+         self.max_data_age = max_data_age
+         self.activity_gate = activity_gate
+@@ -1288,6 +1433,17 @@
+         require(self.activity_gate is not None, "请启用rest或robust静息参考。")
+         self.interrupt("rest_calibrating")
+         self.activity_gate.begin("manual_button", self.stream.position)
++
++    def request_manual_recognition(self, requested_clock):
++        require(self.manual, "请使用--trigger-mode manual。")
++        self.detector.request(requested_clock, self.stream.position, self.stream.segment_id)
++        self.last_state = "manual_settling"
++
++    def check_manual_timeout(self, now):
++        if self.manual and self.detector.check_timeout(now):
++            self.last_state = "manual_timeout"
++            return True
++        return False
+ 
+     def process(self, values, stamps, flags=None, emission_clock=None):
+         values, stamps = np.asarray(values, dtype=float), np.asarray(stamps, dtype=float)
+@@ -1299,6 +1455,7 @@
+                                     np.flatnonzero(finite[1:] != finite[:-1]) + 1])
+         result = []
+         origin = self.stream.position
++        if self.manual: self.detector.exclude_preclick_samples(stamps, origin)
+         for lo, hi in zip(boundaries[:-1], boundaries[1:]):
+             lo, hi = int(lo), int(hi)
+             if hi <= lo: continue
+@@ -1326,6 +1483,7 @@
+                     state, event = ("rest_calibration_failed" if self.activity_gate.state == "failed" else "rest_calibrating"), None
+                     if not frame["usable"]: state = "quality_lock"
+                 else:
++                    if self.manual: self.detector.processing_clock = now; self.detector.sample_clock = stamp
+                     state, event = self.detector.step(frame["decision_row"], frame["segment_id"],
+                         frame["usable"] and timely, np.nan if activity is None else activity, int(predicted[i]), scores[i])
+                 if not timely: state = "stale"
+@@ -1343,6 +1501,9 @@
+                     "output_suppressed_for_data_age": not timely,
+                     "trigger_event_id": event["event_id"] if event else -1})
+                 record.update({"live_profile": self.params.get("live_profile", "replay"),
++                    "trigger_mode":"manual" if self.manual else "auto",
++                    "manual_request_id":self.detector.request_id if self.manual else None,
++                    "manual_pending":self.detector.pending if self.manual else False,
+                     "release_progress": min(self.detector.off_count, self.params["release_windows"]),
+                     "release_required": self.params["release_windows"],
+                     "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"],
+@@ -1388,6 +1549,8 @@
+             "release_required": self.params["release_windows"],
+             "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"]}
+         if self.activity_gate is not None: result["activity_gate"] = self.activity_gate.snapshot()
++        result["trigger_mode"] = "manual" if self.manual else "auto"
++        if self.manual: result.update(self.detector.snapshot())
+         result["blocking_reason"] = explain_blocking_reason(result)
+         return result
+ 
+@@ -1610,7 +1773,7 @@
+             ["activity_mode", "legacy_activity_score", "rest_calibration_revision", "rest_calibration_state",
+              "channels_above_on", "channels_above_off", "live_profile", "release_progress", "release_required",
+              "vote_progress", "vote_required", "onset_candidate_row", "settle_elapsed_s"] +
+-            ["candidate_dip_progress", "candidate_dip_required", "candidate_restarts"] +
++            ["candidate_dip_progress", "candidate_dip_required", "candidate_restarts", "trigger_mode", "manual_request_id", "manual_pending"] +
+             ["raw_p2p_ch%d" % k for k in range(1, 5)] + ["activity_z_ch%d" % k for k in range(1, 5)])
+         self.open_csv("transport_issues.csv", ["received_row", "reason", "timestamp_dt_s", "wall_time"])
+         self.open_csv("transport_health.csv", ["wall_time", "received_samples", "local_clock_s",
+@@ -1655,7 +1818,8 @@
+         fields = ["event_id", "decision_row", "onset_candidate_row", "class_id", "class_name", "marker_code_for_display",
+             "vote_agreement", "activity_score", "release_row", "release_reason", "decision_lsl_time_s",
+             "emitted_local_clock_s", "data_age_at_emission_s", "wall_time", "activity_mode",
+-            "rest_calibration_revision", "minimum_active_channels"]
++            "rest_calibration_revision", "minimum_active_channels", "trigger_mode", "manual_request_id",
++            "manual_requested_lsl_time_s", "manual_response_seconds", "manual_first_allowed_start_row", "manual_capture_seconds", "manual_valid_windows"]
+         self.snapshots.csv("events.csv", fields, events)
+         self.last_event_snapshot = now
+ 
+@@ -1708,13 +1872,15 @@
+     controls = shared.setdefault("live_controls", queue.Queue())
+     options = live_gate_options(args)
+     effective_params = runtime_detector_params(params, args)
++    manual = effective_params.get("trigger_mode") == "manual"
+     gate = (RestActivityGate(float(bundle["preprocess_config"]["fs"]), bundle["preprocess_config"]["window_samples"],
+         options["rest_seconds"], options["minimum_active_channels"], options["on_z"], options["off_z"])
+-        if options["mode"] == "robust" else None)
+-    if options["mode"] == "rest":
++        if options["mode"] == "robust" and not manual else None)
++    if options["mode"] == "rest" and not manual:
+         cfg = bundle["preprocess_config"]
+         gate = RestOnlyActivityGate(cfg["fs"], cfg["window_samples"], cfg["hop_samples"],
+             options["rest_seconds"], options["on_z"], options["off_z"])
++    if manual: gate = None
+     gate_file = "rest_calibration.json"
+     engine, journal, inlet = LiveEngine(bundle, effective_params, names, args.max_data_age, activity_gate=gate), None, None
+     health, last_rms, receive_rate = ReceiveHealth(), None, None
+@@ -1747,8 +1913,10 @@
+             "preprocess_config": bundle["preprocess_config"], "frozen_detector": params,
+             "activity_gate_options": options, "runtime_detector_settings": effective_params,
+             "live_profile": effective_params["live_profile"],
++            "trigger_mode":"manual" if manual else "auto", "activity_gate_enabled":gate is not None,
++            "button_specifies_class":False, "button_timestamps_use":"LSL_clock_not_board_capture_clock",
+             "input_detector_file_modified": False,
+-            "activity_reference_update_policy": "explicit_rest_measurement_then_frozen" if gate is not None else "input_file_frozen",
++            "activity_reference_update_policy": "not_used_manual_button" if manual else "explicit_rest_measurement_then_frozen" if gate is not None else "input_file_frozen",
+             "classifier_updated_during_session": False, "gesture_markers_used_for_inference": False,
+             "reference_action_labels_used_for_activity_gate": False,
+             "preselected_gesture_supported": False,
+@@ -1762,6 +1930,7 @@
+                          "sklearn": sklearn.__version__, "pylsl": getattr(lsl, "__version__", "unknown")}}
+         journal = LiveLog(output, local_config, snapshots=snapshots)
+         journal.events([])
++        if manual: snapshots.json("manual_requests.json", {"schema":"openbci_rp_button_requests_v1","requests":[]})
+         if gate is not None:
+             snapshots.json(gate_file, gate.report())
+             saved_gate_token = gate.change_token
+@@ -1775,12 +1944,16 @@
+         if dropped: journal.issue(0, "startup_inlet_flush_discarded_%d_samples" % dropped)
+         log("启动订阅已就绪，清理Python接收缓存%d点；此操作不能清空GUI或板卡上游队列。" % dropped, output)
+         log("已连接：%s；%sHz；LSL共%d通道，读取%s。" % (metadata["name"], fs, metadata["channels"], args.channels), output)
+-        log("保持手臂放松，等预热和释放状态完成后再做动作；每次动作后放松。", output)
+-        log("实时确认=%s：等待%.2f秒，%d窗至少%d票，连续%d窗放松后释放。" %
+-            (effective_params["live_profile"], effective_params["settle_seconds"],
+-             effective_params["vote_windows"], effective_params["minimum_votes"], effective_params["release_windows"]), output)
++        log("滤波预热后，点击开始识别后做动作，按倒计时保持；识别后再标注实际动作。" if manual else
++            "保持手臂放松，等预热和释放状态完成后再做动作；每次动作后放松。", output)
++        if not manual:
++            log("实时确认=%s：等待%.2f秒，%d窗至少%d票，连续%d窗放松后释放。" %
++                (effective_params["live_profile"], effective_params["settle_seconds"],
++                 effective_params["vote_windows"], effective_params["minimum_votes"], effective_params["release_windows"]), output)
+         if gate is not None:
+             log("静息活动门控：预热后自然放松%.1f秒，不需要提前选择动作；完成后参考冻结。" % gate.seconds, output)
++        if manual: log("按钮识别：点击后采集%.1f秒；前%.1f秒用于动作过渡，之后按有效窗口多数票判断。" %
++            (effective_params["manual_capture_seconds"],effective_params["manual_transition_seconds"]), output)
+         if args.counter_channel is None:
+             log("此流未提供原始Sample Index；连续性检查依据LSL时间戳和接收中断。", output)
+         if not local_config["same_calendar_date_as_calibration"]:
+@@ -1792,6 +1965,21 @@
+             while True:
+                 try: requested_commands.add(controls.get_nowait())
+                 except queue.Empty: break
++            manual_requests = [item for item in requested_commands if isinstance(item,tuple) and len(item)==2 and item[0]=="manual_start"]
++            if manual and manual_requests:
++                try:
++                    require(labels is None or not labels.pending(), "请先标注上一条识别结果。")
++                    engine.request_manual_recognition(min(float(item[1]) for item in manual_requests))
++                except ValueError as exc: log("本次识别未开始：%s" % exc, output)
++                else:
++                    journal.events(engine.detector.events, force=True)
++                    snapshots.json("manual_requests.json", {"schema":"openbci_rp_button_requests_v1","requests":engine.detector.requests})
++                    publish({**engine.snapshot(),"rms_uv":last_rms})
++                    log("开始采集：请现在开始做动作，保持到倒计时结束。", output)
++            if manual and engine.check_manual_timeout(lsl.local_clock()):
++                snapshots.json("manual_requests.json", {"schema":"openbci_rp_button_requests_v1","requests":engine.detector.requests})
++                publish({**engine.snapshot(),"rms_uv":last_rms})
++                log("本次采集超时：未收到完整及时的数据，请重试。", output)
+             if "resubscribe" in requested_commands:
+                 engine.interrupt("warmup")
+                 publish({**engine.snapshot(), "state": "resyncing", "rms_uv": None})
+@@ -1855,6 +2043,8 @@
+             journal.raw(raw, timestamps, arrival, flags, invalid, stale, counters)
+             clean = raw.copy(); clean[invalid | stale] = np.nan
+             records = engine.process(clean, timestamps, flags, lsl.local_clock)
++            if manual and any(record["trigger_event_id"]>=0 or record["detector_state"] in {"manual_timeout","manual_quality_failed","manual_interrupted"} for record in records):
++                snapshots.json("manual_requests.json", {"schema":"openbci_rp_button_requests_v1","requests":engine.detector.requests})
+             if gate is not None and saved_gate_token != gate.change_token:
+                 snapshots.json(gate_file, gate.report())
+                 saved_gate_token = gate.change_token
+@@ -1917,6 +2107,11 @@
+             summary["lsl_connection_count"] = len(local_config.get("connection_history", [])) if journal is not None else 0
+             summary["activity_mode"] = options["mode"]
+             summary["live_profile"] = effective_params["live_profile"]
++            summary["trigger_mode"] = "manual" if manual else "auto"
++            summary["gesture_detection_evaluation_scope"] = "user_button_triggered_classification" if manual else "automatic_activity_gated_detection"
++            if manual:
++                summary["manual_recognition"] = engine.detector.snapshot()
++                snapshots.json("manual_requests.json", {"schema":"openbci_rp_button_requests_v1","requests":engine.detector.requests})
+             if gate is not None:
+                 snapshots.json(gate_file, gate.report())
+                 summary["rest_calibration_status"] = gate.snapshot()
+@@ -1989,7 +2184,8 @@
+     controls = shared.setdefault("live_controls", queue.Queue())
+     options = live_gate_options(args)
+     display_params = runtime_detector_params(params, args)
+-    profile_name = {"stable":"稳定模式", "responsive":"响应模式", "replay":"离线参数模式"}[args.live_profile]
++    manual = display_params.get("trigger_mode") == "manual"
++    profile_name = "按钮识别模式" if manual else {"stable":"稳定模式", "responsive":"响应模式", "replay":"离线参数模式"}[args.live_profile]
+     root.title("OpenBCI 实时识别 · %s · %s" % (LIVE_VERSION, profile_name))
+     root.configure(bg="#f2f5fa")
+     body, footer = make_live_layout(root, tk, ttk)
+@@ -1997,7 +2193,7 @@
+     ttk.Label(body, text="%s  |  分类模型校准日期 %s  |  %s Hz  |  程序 %s" %
+         (bundle["subject_id"], bundle["calibration_date"], bundle["preprocess_config"]["fs"], LIVE_VERSION)).pack(anchor="w", pady=(5, 8))
+     gesture, state, detail = tk.StringVar(value="—"), tk.StringVar(value="正在查找LSL数据流"), tk.StringVar(value="请先启动GUI中的原始时间序列LSL输出")
+-    ttk.Label(body, text="本次锁定的识别结果（放松后释放）", foreground="#56647a").pack()
++    ttk.Label(body, text="本次识别结果" if manual else "本次锁定的识别结果（放松后释放）", foreground="#56647a").pack()
+     ttk.Label(body, textvariable=gesture, font=("Microsoft YaHei UI", 30, "bold"), foreground="#164ab6").pack(pady=4)
+     ttk.Label(body, textvariable=state, font=("Microsoft YaHei UI", 13)).pack()
+     ttk.Label(body, textvariable=detail, wraplength=840).pack(pady=5)
+@@ -2006,12 +2202,14 @@
+     caption = ("肌电活动条 · 相对本次静息的活动分数（不是识别概率）" if options["mode"] == "rest" else
+         "稳健活动分数 · 至少%d/4路增强才启动（不是识别概率）" % options["minimum_active_channels"]
+         if options["mode"] == "robust" else "肌电活动条 · 相对离线静息参考的分数（不是识别概率）")
++    if manual: caption = "动作采集倒计时 · 结束后由模型判断类别"
+     ttk.Label(body, text=caption, foreground="#56647a", wraplength=840).pack(anchor="w")
+     progress = ttk.Progressbar(body, length=560, mode="determinate", maximum=max(1., display_params["on_threshold"]*2))
+     progress.pack(fill="x", pady=6)
+     activity_text = tk.StringVar(value="等待有效活动数据")
+     rms_text = tk.StringVar(value="分类窗口四通道RMS：—")
+     gate_text = tk.StringVar(value="启动后请持续放松，等待静息测量完成" if options["mode"] in {"rest", "robust"} else "使用离线校准的活动参考")
++    if manual: gate_text.set("点击开始识别后做动作，保持到%.1f秒倒计时结束，最后标注实际动作。" % display_params["manual_capture_seconds"])
+     ttk.Label(body, textvariable=activity_text, wraplength=840).pack(anchor="w")
+     ttk.Label(body, textvariable=rms_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=(2, 4))
+     ttk.Label(body, textvariable=gate_text, wraplength=840, foreground="#56647a").pack(anchor="w", pady=(0, 4))
+@@ -2022,6 +2220,7 @@
+     row = ttk.Frame(panel); row.pack(fill="x", pady=7)
+     target, last_click = [None], [-float("inf")]
+     feedback = tk.StringVar(value="做一次手势 → 放松 → 点实际动作保存；标注完成后再做下一次。")
++    if manual: feedback.set("点击开始识别 → 开始做动作并保持 → 倒计时结束后判断 → 标注实际动作。")
+     label_buttons = []
+ 
+     def save_result(actual_id, event_id=None, missed=False):
+@@ -2072,16 +2271,25 @@
+     ttk.Label(stats_panel, textvariable=classes, wraplength=740).pack(anchor="w", pady=2)
+     ttk.Label(body, text="准确率=正确÷（正确+错误+手动记录漏检）。未标注事件不计入；没有输出的动作需手动记录。",
+         wraplength=760, foreground="#56647a").pack(anchor="w", pady=4)
+-    ttk.Label(body, text="每次动作后放松；标注仅用于统计，不会改变识别结果。", wraplength=760).pack(anchor="w", pady=3)
+-    ttk.Label(body, text="等待稳定 %.2f秒；%d窗至少%d票；放松需连续%d窗确认。" %
++    ttk.Label(body, text="每次只识别一次；标注仅用于统计，不会改变识别结果。" if manual else
++        "每次动作后放松；标注仅用于统计，不会改变识别结果。", wraplength=760).pack(anchor="w", pady=3)
++    ttk.Label(body, text=("点击后采集 %.1f秒；前%.1f秒为动作过渡；至少%d个有效窗口，结束后多数票判断。" %
++        (display_params["manual_capture_seconds"],display_params["settle_seconds"],display_params["manual_minimum_valid_windows"])) if manual else "等待稳定 %.2f秒；%d窗至少%d票；放松需连续%d窗确认。" %
+         (display_params["settle_seconds"], display_params["vote_windows"], display_params["minimum_votes"],
+          display_params["release_windows"]), wraplength=760).pack(anchor="w")
+-    if args.live_profile == "responsive":
++    if args.live_profile == "responsive" and not manual:
+         ttk.Label(body, text="响应模式：短暂活动回落不立即清空进度；输出仍需活动达标与类别投票通过。",
+             wraplength=760, foreground="#56647a").pack(anchor="w")
+     ttk.Label(body, text="输出目录：" + str(output), wraplength=760, foreground="#56647a").pack(anchor="w", pady=3)
+     storage_notice = tk.StringVar(value="")
+     ttk.Label(body, textvariable=storage_notice, wraplength=760, foreground="#ad5c00").pack(anchor="w", pady=2)
++    def request_manual_start():
++        if manual and not stop.is_set() and controls.empty() and not labels.pending() and not last_snapshot.get("manual_pending"):
++            controls.put_nowait(("manual_start",float(labels.clock())))
++            start_button.configure(state="disabled")
++            state.set("已开始计时，请现在开始做动作")
++    start_button = ttk.Button(footer, text="开始识别", command=request_manual_start, state="disabled")
++    if manual: start_button.pack(side="left", padx=(0,8))
+     def request_resubscribe():
+         if not stop.is_set() and controls.empty():
+             controls.put_nowait("resubscribe")
+@@ -2096,7 +2304,7 @@
+             state.set("已请求重新测静息；请保持手臂放松")
+     rest_button = ttk.Button(footer, text="重新测静息（请先放松）", command=request_rest_calibration,
+         state="normal" if options["mode"] in {"rest", "robust"} else "disabled")
+-    rest_button.pack(side="left", padx=6)
++    if not manual: rest_button.pack(side="left", padx=6)
+     stop_button = ttk.Button(footer, text="停止接收并保存", command=stop.set)
+     stop_button.pack(side="right")
+     root.protocol("WM_DELETE_WINDOW", stop.set)
+@@ -2111,7 +2319,7 @@
+         else: pending_text.set("暂无待标注事件。做完一次手势、出现输出后，再点实际动作。")
+         enabled = bool(pending) and time.monotonic()-last_click[0] >= .4
+         for button in label_buttons: button.configure(state="normal" if enabled else "disabled")
+-        setting_reference = options["mode"] in {"rest", "robust"} and (last_snapshot.get("activity_gate") or {}).get("state") != "ready"
++        setting_reference = (not manual and options["mode"] in {"rest", "robust"} and (last_snapshot.get("activity_gate") or {}).get("state") != "ready") or (manual and last_snapshot.get("manual_pending",False))
+         miss_button.configure(state="disabled" if pending or setting_reference else "normal")
+         summary = labels.report()["summary"]
+         value = summary["record_based_accuracy"]
+@@ -2148,6 +2356,15 @@
+             progress["maximum"] = indicator["maximum"]
+             progress["value"] = indicator["value"]
+             activity_text.set(indicator["text"])
++            if manual:
++                count = current.get("vote_progress",0)
++                progress["maximum"] = display_params["manual_capture_seconds"]
++                remaining = current.get("manual_seconds_remaining")
++                progress["value"] = (display_params["manual_capture_seconds"] if status=="manual_result" else
++                    0. if remaining is None else display_params["manual_capture_seconds"]-remaining)
++                remaining = current.get("manual_seconds_remaining")
++                activity_text.set(("已收集%d个有效窗口（至少%d个）" % (count,display_params["manual_minimum_valid_windows"]))+
++                    ("；请继续做动作，剩余%.1f秒" % remaining if remaining is not None else ""))
+             gate_status = current.get("activity_gate")
+             if gate_status is not None and not display_stale:
+                 if gate_status["state"] == "collecting":
+@@ -2174,18 +2391,23 @@
+                     (current.get("event_count", 0), current.get("samples", 0), current.get("qc") or "—",
+                      "—" if age is None else "%.0f ms" % (age*1000),
+                      "—" if rate is None else "%.1f Hz" % rate, "—" if queued is None else queued))
+-                if "release_progress" in current:
++                if "release_progress" in current and not manual:
+                     detail.set(detail.get()+" | 放松确认%d/%d | 投票%d/%d" %
+                         (current["release_progress"], current["release_required"], current["vote_progress"], current["vote_required"]))
+-                if "candidate_restarts" in current:
++                if "candidate_restarts" in current and not manual:
+                     detail.set(detail.get()+" | 候选重启%d次" % current["candidate_restarts"])
+                 elapsed = current.get("candidate_elapsed_s")
+-                if elapsed is not None and status not in {"triggered", "active_latched"}:
++                if elapsed is not None and status not in {"triggered", "active_latched"} and not manual:
+                     detail.set(detail.get()+" | 本次确认%.1f秒" % elapsed)
+             resubscribe_button.configure(state="disabled" if stop.is_set() or not controls.empty() or
+                 status in {"connecting", "resyncing"} else "normal")
+-            rest_button.configure(state="disabled" if options["mode"] not in {"rest", "robust"} or stop.is_set() or
++            rest_button.configure(state="disabled" if manual or options["mode"] not in {"rest", "robust"} or stop.is_set() or
+                 not controls.empty() or status in {"connecting", "resyncing"} else "normal")
++            if manual:
++                can_start = (not stop.is_set() and not shared.get("finished") and controls.empty() and
++                    not labels.pending() and not current.get("manual_pending") and stamp is not None and not display_stale and
++                    current.get("qc") in {"PASS","WARNING"} and status.startswith("manual_"))
++                start_button.configure(state="normal" if can_start else "disabled")
+         refresh_labels()
+         persistence = labels.storage_for(output).status()
+         pending_files = persistence["primary_pending_files"]
+@@ -2234,6 +2456,8 @@
+     p.add_argument("--class-names", nargs=2, default=["石头", "布"], help="按Marker11、13顺序给按钮和识别显示命名；本项目已确认默认映射")
+     p.add_argument("--live-profile", choices=["stable", "responsive", "replay"], default="stable",
+         help="stable：保持原确认；responsive：rest模式容忍短暂活动回落，保留至少5窗4票与末两窗一致；replay：原离线确认")
++    p.add_argument("--trigger-mode", choices=["auto","manual"], default="auto", help="manual：点击开始识别后分类，不使用活动门限")
++    p.add_argument("--manual-duration-seconds", type=float, default=4., help="点击后动作采集秒数，范围3~4")
+     p.add_argument("--activity-mode", choices=["rest", "legacy", "robust"], default="rest",
+         help="rest：仅测当前静息后自由动作，识别后标注；robust：旧固定多路门控；legacy：原离线门控")
+     p.add_argument("--rest-seconds", type=float, default=8., help="rest/robust模式的有效静息参考秒数，范围5~30")
+@@ -2263,6 +2487,7 @@
+                 1 <= args.min_active_channels <= 4 and np.isfinite([args.activity_on_z, args.activity_off_z]).all()
+                 and args.activity_on_z > args.activity_off_z >= 0, "静息测量须为5~30秒，通道数须为1~4，启动门限须大于释放门限且非负。")
+         require(args.live_profile != "responsive" or args.activity_mode == "rest", "responsive仅用于rest静息参考模式。")
++        require(np.isfinite(args.manual_duration_seconds) and 3 <= args.manual_duration_seconds <= 4, "按钮动作采集须为3~4秒。")
+         if args.list_streams:
+             lsl = import_lsl()
+             streams = lsl.resolve_streams(wait_time=args.resolve_seconds)
+@@ -2287,10 +2512,11 @@
+         worker = threading.Thread(target=run_receiver, args=(args, bundle, model_path, params, output, stop, publish, shared), daemon=True)
+         if args.no_ui:
+             worker.start()
+-            if args.activity_mode in {"rest", "robust"} and sys.stdin.isatty():
++            if (args.trigger_mode == "manual" or args.activity_mode in {"rest", "robust"}) and sys.stdin.isatty():
+                 def read_controls():
+-                    print("终端操作：R=重新测静息，S=重新订阅，Q=停止；输入后回车。", flush=True)
+-                    commands={"r":"recalibrate_rest","s":"resubscribe"}
++                    print("终端操作：回车或G=开始动作采集，S=重新订阅，Q=停止。" if args.trigger_mode=="manual" else
++                        "终端操作：R=重新测静息，S=重新订阅，Q=停止；输入后回车。", flush=True)
++                    commands={"s":"resubscribe"} if args.trigger_mode=="manual" else {"r":"recalibrate_rest","s":"resubscribe"}
+                     controls=shared.setdefault("live_controls", queue.Queue())
+                     while not stop.is_set():
+                         try: value=sys.stdin.readline()
+@@ -2298,6 +2524,9 @@
+                         if not value: break
+                         value=value.strip().lower()
+                         if value=="q":stop.set();break
++                        if args.trigger_mode=="manual" and value in {"","g"}:
++                            controls.put_nowait(("manual_start",float(import_lsl().local_clock())))
++                            continue
+                         if value in commands:controls.put_nowait(commands[value])
+                 threading.Thread(target=read_controls, daemon=True).start()
+             try:
+--- archive/binary/v1_3_2/run_rp_binary.py
++++ archive/binary/v1_4_0/run_rp_binary.py
+@@ -16,6 +16,7 @@
+ 1.3.0实时修订：仅测当前静息；自由做动作，由冻结SVM判断，再点击实际动作保存统计。
+ 1.3.1：live可显式传入--activity-on-z与--activity-off-z；默认6/3，调参只影响活动门控。
+ 1.3.2：可选--live-profile responsive，容忍短暂活动回落并限制投票历史年龄；不会超时强制输出。
++1.4.0：live添加--trigger-mode manual，点击开始后做动作，固定采集4秒后判断，再标注实际动作。
+ 离线回放继续使用冻结的原门控。要比较原规则，live添加--live-profile replay --activity-mode legacy。
+ 手工动作标注只评估，不训练、不重置检测器。减为两类不能修复上游流积压。
+ """
+@@ -341,7 +342,9 @@
+     if not total and raw_info.get('received_rows',0):findings.append('已经收到原始数据，但没有生成分类窗口；优先检查时间戳拦截和反复滤波预热。')
+     if not summary:findings.append('未找到结束汇总；建议停止并保存后再次诊断。')
+     if not findings:findings.append('日志未显示上述常见拦截；仍需动作真值判断是否存在错分类或漏检。')
++    if config.get('trigger_mode')=='manual':findings.append('本次为按钮触发固定时段分类，活动启动/释放门限未参与判断。')
+     result={'log_directory':str(root),'script_version':config.get('script_version'),
++        'trigger_mode':config.get('trigger_mode','auto'),
+         'model_calibration_date':config.get('calibration_date'),'activity_mode':config.get('activity_gate_options',{}).get('mode'),
+         'stream':config.get('stream'),'channels_one_based':config.get('channels_one_based'),'input_unit':config.get('input_unit'),
+         'thresholds':{k:params.get(k) for k in ['on_threshold','off_threshold','settle_seconds','vote_windows','minimum_votes','release_windows']},
+@@ -374,6 +377,8 @@
+     q.add_argument('--stream-name',default='rps_raw')
+     q.add_argument('--activity-mode',choices=['rest','legacy','robust'],default='rest')
+     q.add_argument('--live-profile',choices=['stable','responsive','replay'],default='stable')
++    q.add_argument('--trigger-mode',choices=['auto','manual'],default='auto',help='manual：点击后做动作，固定采集后分类，绕过活动门控')
++    q.add_argument('--manual-duration-seconds',type=float,default=4.,help='按钮点击后采集3~4秒，默认4秒')
+     q.add_argument('--rest-seconds',type=float,default=8.)
+     q.add_argument('--activity-on-z',type=float,default=6.,help='rest/robust启动门限；6为默认工程设置，并非个体最优值')
+     q.add_argument('--activity-off-z',type=float,default=3.,help='rest/robust释放门限，须小于启动门限')
+@@ -400,6 +405,7 @@
+             else:
+                 cmd=[sys.executable,str(HERE/SCRIPTS['live']),'--model',state['daily_model'],'--detector',state['detector'],
+                      '--stream-name',args.stream_name,'--activity-mode',args.activity_mode,'--live-profile',args.live_profile,
++                     '--trigger-mode',args.trigger_mode,'--manual-duration-seconds',str(args.manual_duration_seconds),
+                      '--rest-seconds',str(args.rest_seconds),
+                      '--activity-on-z',str(args.activity_on_z),'--activity-off-z',str(args.activity_off_z),
+                      '--input-unit',args.input_unit,'--channels',*map(str,args.channels),

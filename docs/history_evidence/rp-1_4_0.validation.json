@@ -1,0 +1,37 @@
+{
+  "version": "1.4.0-rp-button",
+  "test_counts": {
+    "button": 15,
+    "previous_auto_regressions": 45,
+    "native_lsl_button_sessions": 1
+  },
+  "scope": "Saved software/synthetic/native-loopback validation, not participant OpenBCI hardware accuracy.",
+  "file_hashes": {
+    "07_live_rp_binary_label_4ch.py": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29",
+    "run_rp_binary.py": "249ebdb00ecbe11d7576da119bd47bf319d6f817a7fd4296b07546003cb3e599"
+  },
+  "historical_original_manifest_sha256": "c2907f0bbf2f638531bfdb2531710d7d3650393c08e5dde139c74f0149115a67",
+  "reexecuted_for_this_history_writeup": false,
+  "button_protocol": {
+    "capture_seconds_default": 4.0,
+    "allowed_duration_seconds": [
+      3.0,
+      4.0
+    ],
+    "transition_seconds": 1.0,
+    "classify_after_capture_only": true,
+    "activity_gate_used": false,
+    "preselected_class_used": false,
+    "valid_window_minimum_fraction": 0.8,
+    "aggregation": "majority_then_mean_signed_svm_scores"
+  },
+  "unchanged_components": [
+    "GestureDetector",
+    "extract_features",
+    "CausalWindowStream",
+    "TransportGuard",
+    "PosthocLabels",
+    "RestOnlyActivityGate",
+    "predict"
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "format": "openbci_semg_source_manifest_v1",
   "date": "2026-11-15",
-  "description": "Initial distributed source hashes, excluding this manifest itself and runtime outputs.",
+  "description": "Version-history documentation release snapshot; original distribution remains available in Git history.",
   "files": [
     {
       "path": ".gitattributes",
@@ -19,14 +19,19 @@
       "sha256": "f0f0ae789686787ce84925727a29f19d516044df9cf91d8972b6ce250d487298"
     },
     {
+      "path": "CHANGELOG.md",
+      "bytes": 1278,
+      "sha256": "54695b76b262506753ac43fc38e74c25bec6d5929067fe033b0ac6201984783a"
+    },
+    {
       "path": "README.md",
-      "bytes": 7612,
-      "sha256": "dc23d1330efb4ad0a3ec55026549f5c508bacabb58bbdb4aed5346913988a64b"
+      "bytes": 7836,
+      "sha256": "b1f0370a063e08fc4f75908c6c8efd3efd7b5026cad1d89332ddc54d274a4eeb"
     },
     {
       "path": "SOURCE_PROVENANCE.json",
-      "bytes": 15323,
-      "sha256": "9b19a94239b29d11fe29d45a73b959296c6af4e9f5754d7521d39698f9b6a5fd"
+      "bytes": 17136,
+      "sha256": "114fbe73a5ba917f5880ee5f819ba3fc80ecfbb6eb3525cdfe042cd06e2a26a7"
     },
     {
       "path": "VALIDATION.json",
@@ -35,8 +40,18 @@
     },
     {
       "path": "archive/README.md",
-      "bytes": 729,
-      "sha256": "fda2dfb425ca255d23b5ede581d793d3247d684f17e2c088d0cd7b4a7facf4fd"
+      "bytes": 682,
+      "sha256": "d218b11b1cc1ae4002ad21378b971a39f7b56575019c4ab3d4cc655e7d06b8d1"
+    },
+    {
+      "path": "archive/binary/classic_v1_0_1/07_live_rp_binary_label_4ch.py",
+      "bytes": 131520,
+      "sha256": "3debf945963d79dfbbb41c2a491cc15bb5174ec7c111a2b466ffad16933e184a"
+    },
+    {
+      "path": "archive/binary/repository_integration_20261115/run_rp_binary.py",
+      "bytes": 30241,
+      "sha256": "0ac09082f5089ae42dbe2f257f099283877a42324cfb98df316dc110d5e7de64"
     },
     {
       "path": "archive/binary/v1_0_0/07_live_rp_binary_label_4ch.py",
@@ -99,6 +114,16 @@
       "sha256": "453ad98a6591ba6fdc936bb27b37d8729c689d621e8d10cc06e763d2972ccf65"
     },
     {
+      "path": "archive/binary/v1_4_0/07_live_rp_binary_label_4ch.py",
+      "bytes": 160969,
+      "sha256": "77fa8262e203f992fda1ff3b2d35a47dddec908ad48b99588213f285b8cb0c29"
+    },
+    {
+      "path": "archive/binary/v1_4_0/run_rp_binary.py",
+      "bytes": 28163,
+      "sha256": "249ebdb00ecbe11d7576da119bd47bf319d6f817a7fd4296b07546003cb3e599"
+    },
+    {
       "path": "binary/00_collect_rp_binary_4ch.py",
       "bytes": 41191,
       "sha256": "787ead4034eb87c57888bdbeb8da0c0c359597146d2f5f73f4cc4492b6840973"
@@ -149,6 +174,11 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
+      "path": "docs/BINARY_VERSION_HISTORY.md",
+      "bytes": 11171,
+      "sha256": "4f1c6f64213c4bfbe950cc8caa594824efea45d01dd76783db064bd3f4bd2a58"
+    },
+    {
       "path": "docs/DAILY_WORKFLOW.md",
       "bytes": 4044,
       "sha256": "d53d02af0ac2f57c3067e3858079efa3b4e72ae49eed259b8e4365a283a0706d"
@@ -185,8 +215,93 @@
     },
     {
       "path": "docs/VERSIONS.md",
-      "bytes": 1965,
-      "sha256": "0edae864f6b1763619cc09f44ed901927ad85eda9cd8631d0693e6043946d590"
+      "bytes": 2223,
+      "sha256": "b1c6ae1c2e526e71a48d3fa1bb63e9401b066b2b104a4ed1b2e9c766b5e03a80"
+    },
+    {
+      "path": "docs/binary_version_history.json",
+      "bytes": 21681,
+      "sha256": "31ea2f5ded6037df0e2c1e4eaaae38e7954f69d757e2a0f83d8badeb5a37ad72"
+    },
+    {
+      "path": "docs/history_evidence/classic.validation.json",
+      "bytes": 1454,
+      "sha256": "408c6f6652c6f0bb1fe3f4761da8857e53c1cafecd891bce9ef127f544758d59"
+    },
+    {
+      "path": "docs/history_evidence/repository_integration.validation.json",
+      "bytes": 416,
+      "sha256": "89505f69715426e3151277a495b1f1336b3fb37d4fa816d0ec0618d9495ccd3b"
+    },
+    {
+      "path": "docs/history_evidence/rp-1_1_0.validation.json",
+      "bytes": 1048,
+      "sha256": "8ebae2e98db7318bb33419c917f58cd22200e58d5a16921395c4bf6f005ec384"
+    },
+    {
+      "path": "docs/history_evidence/rp-1_2_0.validation.json",
+      "bytes": 1059,
+      "sha256": "43cf071ae12b6d1a2b060d39c285b570491540280f66d89551aac27467a8f251"
+    },
+    {
+      "path": "docs/history_evidence/rp-1_3_0.validation.json",
+      "bytes": 648,
+      "sha256": "63c75247eb42c0e5eb816b48297f5b9a239e98b77a9e299d0e13ef882f119548"
+    },
+    {
+      "path": "docs/history_evidence/rp-1_3_1.validation.json",
+      "bytes": 960,
+      "sha256": "65a7d83f14b38198864ae34b0e407184b6b044def7f0f5951646f41762bbe0cf"
+    },
+    {
+      "path": "docs/history_evidence/rp-1_3_2.validation.json",
+      "bytes": 1033,
+      "sha256": "d03a1019b5b02d4772505e8feae00cfe2aea0cd0e1e35175bb1d03d08d52393f"
+    },
+    {
+      "path": "docs/history_evidence/rp-1_4_0.validation.json",
+      "bytes": 1197,
+      "sha256": "35ebc39d0c27add924af3122979d5e64d18de9bd5711b5d0020cc30afff5d1c6"
+    },
+    {
+      "path": "docs/version_diffs/repository-integration-20261115.patch",
+      "bytes": 9696,
+      "sha256": "1b26d8e7b25c08107bcf368621da212ff23088e263675193b98d4b7077864808"
+    },
+    {
+      "path": "docs/version_diffs/rp-1_1_0.patch",
+      "bytes": 16333,
+      "sha256": "0c1b2bc9e612a1259727fc0f683d96c097be02a11ccc54c1e204152924e367dc"
+    },
+    {
+      "path": "docs/version_diffs/rp-1_2_0.patch",
+      "bytes": 56632,
+      "sha256": "a58f9d1b95aab603c3bbe8b36fc284abe3a716627dc1b44b831d32919cc2d9a9"
+    },
+    {
+      "path": "docs/version_diffs/rp-1_3_0.patch",
+      "bytes": 44500,
+      "sha256": "a05735ff5c4ceabd4320c652eb7dcd843bb683fd2bb1c0940d320fee64cd591c"
+    },
+    {
+      "path": "docs/version_diffs/rp-1_3_1.patch",
+      "bytes": 7250,
+      "sha256": "f835c450d6e746674bccf6561aff9316258fd2c92636d0432b2caa482df1d8ac"
+    },
+    {
+      "path": "docs/version_diffs/rp-1_3_2.patch",
+      "bytes": 16760,
+      "sha256": "0fc6c931529735b9c6f00338f98b4e43ed66b9b7133333f7ea11037a450a38dc"
+    },
+    {
+      "path": "docs/version_diffs/rp-1_4_0.patch",
+      "bytes": 42379,
+      "sha256": "fb9a51a54eb790ed28980ab369bcbdfda2ea9d8d3887c26f8e2b3d7d7cd7f6dc"
+    },
+    {
+      "path": "docs/version_diffs/rps07_to_classic_1_0_1.patch",
+      "bytes": 42791,
+      "sha256": "e408ce2f844356032c1f730364b91e0bebed2f6a0879338b01bc85b3dcfbe949"
     },
     {
       "path": "models/.gitkeep",

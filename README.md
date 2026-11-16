@@ -86,6 +86,10 @@ python run.py live --run "$runDir" --engine extended --trigger-mode manual --man
 
 `classic --gate-profile trial`包含ON=7.2、OFF=7.0、等待0.2秒、5窗4票、5窗释放。这只是根据少量历史截图设置的临时试验值，不能视为个体通用阈值。新日期校准后优先使用`source`。活动值决定何时允许输出，SVM决定类别；活动高低不直接映射成石头/布。详见`docs/GATING.md`。
 
+## 更新记录
+
+这三个二分类实时文件的历次更新见[CHANGELOG.md](CHANGELOG.md)和[详细版本历史](docs/BINARY_VERSION_HISTORY.md)，包括源码快照、逐行差异、SHA256及验证范围。
+
 ## 项目文件
 
 | 位置 | 内容 |
@@ -99,7 +103,7 @@ python run.py live --run "$runDir" --engine extended --trigger-mode manual --man
 | `binary/run_rp_binary.py` | 自动串联基础训练/当天校准、回放、按引擎转发实时参数 |
 | `rps/` | 原三分类采集、01—08、当天流水线、原有测试和说明 |
 | `tools/` | RMS诊断、版本比较、源码检查 |
-| `archive/binary/` | 1.0.0—1.3.2可用历史实时/入口快照；不作为默认流程 |
+| `archive/binary/` | 1.0.0—1.4.0、classic1.0.1和整合入口的历史快照；详见版本记录 |
 | `configs/` | 二分类采集JSON |
 | `tests/` | 入口兼容、门控、标签隔离、合成数据端到端测试 |
 | `docs/` | 协议、每日流程、门控、数据流、验证、GitHub上传说明 |

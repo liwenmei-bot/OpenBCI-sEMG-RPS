@@ -1,0 +1,92 @@
+--- archive/binary/v1_3_0/07_live_rp_binary_label_4ch.py
++++ archive/binary/v1_3_1/07_live_rp_binary_label_4ch.py
+@@ -758,13 +758,13 @@
+ import queue
+ import threading
+ 
+-LIVE_VERSION = "1.3.0-rp-rest"
++LIVE_VERSION = "1.3.1-rp-rest"
+ LIVE_SCHEMA = "openbci_rp_binary_4ch_svm_live_v1"
+ STATE_NAMES = {
+     "waiting_for_release": "请先放松手臂", "released": "已放松，等待动作",
+-    "quiet_or_candidate": "等待动作稳定", "collecting_votes": "正在稳定判决",
++    "quiet_or_candidate": "正在确认活动启动", "collecting_votes": "正在稳定判决",
+     "settling": "等待动作稳定", "unstable": "类别尚未稳定",
+-    "activity_below_on_waiting": "活动不足，等待稳定", "active_latched": "已识别，请放松后再做下一次",
++    "activity_below_on_waiting": "活动低于启动门限，暂不输出", "active_latched": "已识别，请放松后再做下一次",
+     "triggered": "已识别，请放松后再做下一次", "quality_lock": "信号异常，请检查后放松",
+     "warmup": "滤波预热中", "no_data": "数据中断，等待恢复", "stale": "数据积压，暂停输出",
+     "connected": "已连接，正在接收数据", "connecting": "正在查找LSL数据流", "stopped": "已停止",
+@@ -784,9 +784,18 @@
+     if state in {"rest_calibrating", "rest_calibration_failed"}:
+         return gate.get("error") or STATE_NAMES[state]
+     if state in {"triggered", "active_latched"}: return "本次已有输出；需放松至释放条件后再做下一次"
+-    if state == "waiting_for_release": return "尚未确认放松：%d/%d窗" % (snapshot.get("release_progress", 0), snapshot.get("release_required", 0))
++    if state == "waiting_for_release":
++        activity, off = snapshot.get("activity"), snapshot.get("off_threshold")
++        if activity is not None and off is not None and np.isfinite([activity, off]).all() and activity > off:
++            return "活动 %.2f > 释放 %.2f，尚未解除锁定" % (activity, off)
++        return "尚未确认放松：%d/%d窗" % (snapshot.get("release_progress", 0), snapshot.get("release_required", 0))
+     if state == "released": return "已放松，可以做动作"
+-    if state in {"quiet_or_candidate", "activity_below_on_waiting"}: return "活动尚未满足启动条件；查看各通道RMS与当前活动参考"
++    if state in {"quiet_or_candidate", "activity_below_on_waiting"}:
++        activity, on = snapshot.get("activity"), snapshot.get("on_threshold")
++        if activity is not None and on is not None and np.isfinite([activity, on]).all():
++            if activity < on: return "活动 %.2f < 启动 %.2f，当前窗口不能输出新动作" % (activity, on)
++            return "活动已达启动门限，正在确认启动：%d/%d窗" % (snapshot.get("on_progress", 0), snapshot.get("on_required", 0))
++        return "活动尚未满足启动条件；查看各通道RMS与当前活动参考"
+     if state == "unstable": return "活动已达到条件，但SVM候选类别仍在变化"
+     return STATE_NAMES.get(state, state)
+ 
+@@ -1331,6 +1340,9 @@
+             "candidate_class_id": self.last_candidate,
+             "candidate_gesture": self.names[self.last_candidate] if self.last_candidate is not None else "—",
+             "raw_p2p_uv": self.last_raw_p2p,
++            "on_threshold": float(self.params["on_threshold"]), "off_threshold": float(self.params["off_threshold"]),
++            "on_progress": min(self.detector.on_count, self.params["on_windows"]),
++            "on_required": self.params["on_windows"],
+             "release_progress": min(self.detector.off_count, self.params["release_windows"]),
+             "release_required": self.params["release_windows"],
+             "vote_progress": len(self.detector.history), "vote_required": self.params["vote_windows"]}
+@@ -2077,8 +2089,12 @@
+             stamp = current.get("last_sample_lsl_time_s")
+             age = float(labels.clock())-float(stamp) if stamp is not None else None
+             display_stale = age is not None and not (-.25 <= age <= args.max_data_age)
+-            state.set("接收画面已过时，等待新数据；可尝试重新同步LSL" if display_stale and not stop.is_set() else
+-                STATE_NAMES.get(status, current.get("message", status)))
++            state_text = STATE_NAMES.get(status, current.get("message", status))
++            if status == "quiet_or_candidate":
++                current_activity = current.get("activity")
++                if current_activity is not None and np.isfinite(current_activity) and current_activity < display_params["on_threshold"]:
++                    state_text = "活动不足，尚未达到启动门限"
++            state.set("接收画面已过时，等待新数据；可尝试重新同步LSL" if display_stale and not stop.is_set() else state_text)
+             gesture.set("—" if display_stale else current.get("gesture", "—"))
+             blocking_text.set("状态说明：接收数据已过时" if display_stale else
+                 "状态说明："+current.get("blocking_reason", STATE_NAMES.get(status, status)))
+--- archive/binary/v1_3_0/run_rp_binary.py
++++ archive/binary/v1_3_1/run_rp_binary.py
+@@ -14,6 +14,7 @@
+ Marker11石头 -> class0；Marker13布 -> class1；Marker12剪刀不参与拟合。
+ Run1拟合，Run2选择权重/门控，Run1+2最终拟合，Run3+4独立测试。
+ 1.3.0实时修订：仅测当前静息；自由做动作，由冻结SVM判断，再点击实际动作保存统计。
++1.3.1：live可显式传入--activity-on-z与--activity-off-z；默认6/3，调参只影响活动门控。
+ 离线回放继续使用冻结的原门控。要比较原规则，live添加--live-profile replay --activity-mode legacy。
+ 手工动作标注只评估，不训练、不重置检测器。减为两类不能修复上游流积压。
+ """
+@@ -373,6 +374,8 @@
+     q.add_argument('--activity-mode',choices=['rest','legacy','robust'],default='rest')
+     q.add_argument('--live-profile',choices=['stable','replay'],default='stable')
+     q.add_argument('--rest-seconds',type=float,default=8.)
++    q.add_argument('--activity-on-z',type=float,default=6.,help='rest/robust启动门限；6为默认工程设置，并非个体最优值')
++    q.add_argument('--activity-off-z',type=float,default=3.,help='rest/robust释放门限，须小于启动门限')
+     q.add_argument('--input-unit',choices=['uv','mv','v'],default='uv')
+     q.add_argument('--channels',nargs=4,type=int,default=[1,2,3,4])
+     q.add_argument('--source-id')
+@@ -397,6 +400,7 @@
+                 cmd=[sys.executable,str(HERE/SCRIPTS['live']),'--model',state['daily_model'],'--detector',state['detector'],
+                      '--stream-name',args.stream_name,'--activity-mode',args.activity_mode,'--live-profile',args.live_profile,
+                      '--rest-seconds',str(args.rest_seconds),
++                     '--activity-on-z',str(args.activity_on_z),'--activity-off-z',str(args.activity_off_z),
+                      '--input-unit',args.input_unit,'--channels',*map(str,args.channels),
+                      '--output',args.output,'--duration',str(args.duration)]
+                 if args.source_id:cmd.extend(['--source-id',args.source_id])
