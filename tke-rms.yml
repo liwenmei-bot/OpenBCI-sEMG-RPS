@@ -1,0 +1,40 @@
+name: TKE-RMS synthetic checks
+
+on:
+  push:
+    paths:
+      - binary/08_live_rp_tke_compare_4ch.py
+      - docs/TKE_RMS_EXPERIMENT.md
+      - .github/workflows/tke-rms.yml
+      - requirements*.txt
+  pull_request:
+    paths:
+      - binary/08_live_rp_tke_compare_4ch.py
+      - docs/TKE_RMS_EXPERIMENT.md
+      - .github/workflows/tke-rms.yml
+      - requirements*.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check syntax and command line
+        run: |
+          python -m py_compile binary/08_live_rp_tke_compare_4ch.py
+          python binary/08_live_rp_tke_compare_4ch.py --help
+      - name: Run synthetic TKE and RMS tests without hardware
+        run: python binary/08_live_rp_tke_compare_4ch.py --self-test
