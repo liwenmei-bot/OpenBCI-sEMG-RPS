@@ -51,7 +51,7 @@ try:
 except ImportError as exc:
     raise SystemExit('缺少依赖：%s\n请运行：python -m pip install numpy scipy scikit-learn joblib pylsl' % exc)
 
-APP_VERSION = '1.0.0-tke-rms-compare'
+APP_VERSION = '1.0.1-tke-rms-compare'
 APP_SCHEMA = 'openbci_rp_tke_compare_v1'
 ARM_NAMES = {'A': '原RMS', 'B': '当天RMS', 'C': '当天TKE'}
 NAMES = ['石头', '布']
@@ -996,11 +996,14 @@ def describe_stream(s):
 
 
 def connect_inlet(lsl, args, fs):
+    requested_name = args.stream_name.strip()
+    require(bool(requested_name), 'LSL流名去除首尾空白后不能为空。')
     streams = lsl.resolve_streams(wait_time=args.resolve_seconds)
-    matching = [s for s in streams if s.name() == args.stream_name
+    matching = [s for s in streams if s.name().strip() == requested_name
         and (not args.stream_type or s.type().strip() == args.stream_type.strip())
         and (not args.source_id or s.source_id() == args.source_id)]
-    require(len(matching) == 1, '需要唯一匹配LSL流，当前%d个。请检查GUI是否发送，并用--list-streams核对；重名时指定--source-id。' % len(matching))
+    available_names = ', '.join(repr(s.name()) for s in streams) or '未发现任何流'
+    require(len(matching) == 1, '需要唯一匹配LSL流，当前%d个；发现的名称：%s。请检查GUI是否发送，并用--list-streams核对；重名时指定--source-id。' % (len(matching), available_names))
     selected = matching[0]
     require(abs(float(selected.nominal_srate()) - fs) < 1e-6, 'LSL采样率与模型不一致。')
     need = max(args.channels + ([args.counter_channel] if args.counter_channel else []))
@@ -1519,6 +1522,7 @@ def self_test():
     """Synthetic engineering checks only, never a measured real-user accuracy."""
     import unittest
     import tempfile
+    from types import SimpleNamespace
     from scipy.signal import butter
 
     def config():
@@ -1554,7 +1558,47 @@ def self_test():
             'preprocess_config': config(), 'arms': {a: {'reference': [1.] * 4, 'metric': 'tke' if a == 'C' else 'rms',
                 'params': params()} for a in ARM_NAMES}}
 
+    def fake_lsl(names):
+        class Info:
+            def __init__(self, name): self._name = name
+            def name(self): return self._name
+            def type(self): return 'EMG'
+            def source_id(self): return 'openbcigui'
+            def uid(self): return 'synthetic-only-' + self._name
+            def nominal_srate(self): return 250.
+            def channel_count(self): return 8
+        class Fake:
+            proc_clocksync = 1
+            opened, flushed = False, False
+            def resolve_streams(self, wait_time): return [Info(n) for n in names]
+            def StreamInlet(self, selected, **options):
+                self.selected = selected
+                return self
+            def open_stream(self, timeout): self.opened = True
+            def flush(self): self.flushed = True
+        return Fake()
+
     class Checks(unittest.TestCase):
+        def test_lsl_name_ignores_outer_tab_and_spaces(self):
+            for actual, requested in [('\trps_raw', 'rps_raw'), ('rps_raw  ', ' rps_raw '), ('rps_raw', 'rps_raw')]:
+                with self.subTest(actual=repr(actual), requested=repr(requested)):
+                    lsl = fake_lsl([actual])
+                    args = SimpleNamespace(stream_name=requested, stream_type=None, source_id=None,
+                        channels=[1, 2, 3, 4], counter_channel=None, resolve_seconds=10.)
+                    inlet, metadata = connect_inlet(lsl, args, 250.)
+                    self.assertIs(inlet, lsl)
+                    self.assertTrue(lsl.opened and lsl.flushed)
+                    self.assertEqual(metadata['name'], actual)
+                    self.assertEqual(metadata['channels'], 8)
+
+        def test_lsl_normalized_name_collision_is_rejected(self):
+            args = SimpleNamespace(stream_name='rps_raw', stream_type=None, source_id=None,
+                channels=[1, 2, 3, 4], counter_channel=None, resolve_seconds=10.)
+            with self.assertRaisesRegex(ValueError, '当前2个'):
+                connect_inlet(fake_lsl(['rps_raw', '\trps_raw']), args, 250.)
+            with self.assertRaisesRegex(ValueError, '发现的名称'):
+                connect_inlet(fake_lsl(['other_stream']), args, 250.)
+
         def test_tke_sinusoid_and_packet_invariance(self):
             t = np.arange(800)
             omega, amplitude = .7, 3.

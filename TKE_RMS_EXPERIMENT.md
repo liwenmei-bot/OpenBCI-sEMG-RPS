@@ -1,6 +1,6 @@
 # TKE / RMS 门控对照实验
 
-更新日期：2026-11-18。程序版本：`1.0.0-tke-rms-compare`。
+更新日期：2026-11-21。程序版本：`1.0.1-tke-rms-compare`。
 
 对应脚本：[`../binary/08_live_rp_tke_compare_4ch.py`](../binary/08_live_rp_tke_compare_4ch.py)。
 
@@ -41,6 +41,7 @@ B与C使用当天参考，可以帮助区分“重新校准参考的收益”与
 - Windows桌面环境，推荐沿用训练该模型的`bci`环境。
 - OpenBCI，250 Hz；流可有8通道，默认选前4通道，输入单位为μV。
 - OpenBCI GUI的Networking：Protocol=`LSL`，Data Type=`TimeSeriesRaw`，Name=`rps_raw`，并启动发送。
+- 1.0.1起，匹配LSL流名时忽略名称首尾的Tab和空格；日志仍保留真实名称。如多个流去空白后同名，仍会拒绝不唯一的匹配。
 - 分类模型必须是配套二分类流程生成的`daily_model.joblib`，类别0为石头、1为布。
 - 需要与该模型匹配的`replay_detector_config.json`；程序会核对模型哈希和预处理契约。
 - 使用`--run`时，传入包含`pipeline_state.json`的完整流程输出目录，不是原始TXT路径。
@@ -207,7 +208,7 @@ TKE原始指标的单位为μV²；归一化后的活动分数无量纲。它与
 
 ## 9. 工程自检与离线回放
 
-不连接板卡的12项自检：
+不连接板卡的14项自检：
 
 ```powershell
 python .\binary\08_live_rp_tke_compare_4ch.py --self-test
@@ -227,9 +228,11 @@ python .\binary\08_live_rp_tke_compare_4ch.py `
 
 `replay_audit.json`比较原始输入复算的特征、TKE和事件行号/类别是否与原日志一致。即使一致，也不证明GUI与板卡物理动作同步。
 
-2026-11-18在Python 3.12.14环境完成：12项自检通过；另以模拟LSL跑通静息、6次动作校准、冻结、3次正式测试、60秒静息测试与保存，原始数据回放一致；与原classic流程比较的窗口和20维特征一致。尚未完成用户实际板卡、Windows原生窗口和真实动作延迟验证。
+2026-11-18的1.0.0在Python 3.12.14环境完成：12项自检通过；另以模拟LSL跑通静息、6次动作校准、冻结、3次正式测试、60秒静息测试与保存，原始数据回放一致；与原classic流程比较的窗口和20维特征一致。
 
-此版本脚本SHA256：`410f0a7dadafb3485ceb67118a138071c8899960d2cb7677053807df48b41f6f`。
+2026-11-21，用户发现实际流名为`"\trps_raw"`，1.0.0严格匹配`"rps_raw"`而失败。1.0.1修正首尾空白处理，并新增隐藏Tab/空格连接及归一化重名保护回归测试，14项自检通过。用户截图已显示1.0.0可在Windows打开窗口；1.0.1持续接收、用户实际板卡及真实动作延迟仍需实测。
+
+此版本脚本SHA256：`12200703201067f0f9eca73e7d3b190289f6ce81f04b35cbabd9b123f00e03be`。
 
 ## 10. 常见问题
 
@@ -241,6 +244,7 @@ python .\binary\08_live_rp_tke_compare_4ch.py `
 | 布超过门限却显示不稳定 | 查看候选类别和投票；降低门限不能直接修复类别分不清 |
 | 运行后提示模型与门控不匹配 | 使用同一次流程输出的两个文件，或正确的`pipeline_state.json`目录 |
 | 找不到LSL或有多个同名流 | 用`--list-streams`；核查GUI发送状态，必要时用`--source-id`限定 |
+| 列出的流名是`"\trps_raw"`而旧版匹配不到 | 前导`\t`是隐藏Tab；更新到1.0.1，或在GUI停止LSL、将Name全选重输为`rps_raw`后重新启动LSL |
 | 数据中断/过时 | 先检查GUI和时间戳日志；可点击重连LSL，恢复后重新预热、先放松 |
 | GUI RMS与Python RMS不同 | 核对滤波与统计窗口；流名和低LSL年龄不能单独证明物理同步 |
 
@@ -285,6 +289,8 @@ python .\binary\08_live_rp_tke_compare_4ch.py --self-test
 
 新增工作流使用合成信号，不连接LSL、不打开窗口、不需要真实模型，也不上传受试者数据。
 工作流文件随此次说明提供；实际GitHub Actions通过状态以推送后页面为准。
+
+2026-11-21的1.0.1连接修复只需同步替换`binary/08_live_rp_tke_compare_4ch.py`和`docs/TKE_RMS_EXPERIMENT.md`。已经上传的工作流会自动运行脚本中的14项自检；README入口链接仍指向本说明。
 
 ## 12. 方法来源与边界
 
