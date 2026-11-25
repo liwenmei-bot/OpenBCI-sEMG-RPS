@@ -1,0 +1,20 @@
+{
+  "stream_name": "rps_raw",
+  "stream_type": "EMG",
+  "sampling_rate_hz": 250,
+  "channels_used": [1, 2, 3, 4],
+  "runs": 4,
+  "trials_per_run": 20,
+  "rock_trials_per_run": 10,
+  "scissors_trials_per_run": 10,
+  "rest_seconds": 3.0,
+  "prepare_seconds": 1.0,
+  "action_seconds": 4.0,
+  "recovery_seconds": 2.5,
+  "filter_band_hz": [20, 100],
+  "notch_hz": 50,
+  "window_seconds": 0.2,
+  "step_seconds": 0.1,
+  "feature_sets": [20, 25],
+  "class_mapping": {"0": "Rock", "1": "Scissors"}
+}
