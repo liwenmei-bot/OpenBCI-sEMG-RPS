@@ -1,0 +1,53 @@
+{
+  "project_name": "OpenBCI_sEMG_Rock_vs_Paper_4CH",
+  "stream_name": "rps_raw",
+  "stream_type": "EMG",
+  "sampling_rate_hz": 250,
+  "channels_used": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "runs": 4,
+  "trials_per_run": 20,
+  "rock_trials_per_run": 10,
+  "paper_trials_per_run": 10,
+  "rest_seconds": 3.0,
+  "prepare_seconds": 1.0,
+  "action_seconds": 4.0,
+  "recovery_seconds": 2.5,
+  "filter_band_hz": [
+    20,
+    100
+  ],
+  "filter_order": 4,
+  "notch_hz": 50,
+  "notch_q": 30,
+  "window_seconds": 0.2,
+  "step_seconds": 0.1,
+  "feature_action_start_s": 0.5,
+  "feature_action_end_s": 3.5,
+  "feature_sets": [
+    20,
+    25
+  ],
+  "zc_ssc_noise_fraction": 0.01,
+  "class_mapping": {
+    "0": "Rock",
+    "1": "Paper"
+  },
+  "training_protocol": {
+    "model_selection": "StratifiedGroupKFold 4-fold on Run1+Run2, grouped by Trial ID",
+    "final_fit": "Run1+Run2+Run3",
+    "independent_test": "Run4",
+    "unit_of_evaluation": "Trial-level majority vote"
+  },
+  "quality_limits": {
+    "max_timestamp_gap_s": 0.1,
+    "max_nonincreasing_fraction": 0.1,
+    "max_timestamp_rate_error": 0.1,
+    "max_arrival_pause_s": 0.25,
+    "max_duration_error_s": 0.5
+  }
+}
